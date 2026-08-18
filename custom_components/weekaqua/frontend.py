@@ -16,31 +16,39 @@ CARD_FILENAME = "weekaqua-card.js"
 VERSION = "1.0.5"
 
 
-async def async_setup_frontend(hass: HomeAssistant) -> None:
-    """Automatically host, copy, and register the WeekAqua card with Lovelace."""
-    current_dir = os.path.dirname(__file__)
+def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:
+    """Synchronous file copy and validation executed in a background thread."""
     source_js = os.path.join(current_dir, "frontend", CARD_FILENAME)
-
     if not os.path.exists(source_js):
-        # Fallback path if running outside package
         source_js = os.path.join(current_dir, "..", "..", "dist", CARD_FILENAME)
 
     if not os.path.exists(source_js):
-        _LOGGER.warning("WeekAqua Lovelace Card JS not found at %s", source_js)
-        return
+        return None
 
-    # 1. Automatic file copy to config/www/weekaqua-card.js (so /local/weekaqua-card.js works)
     try:
-        www_dir = hass.config.path("www")
         if not os.path.exists(www_dir):
             os.makedirs(www_dir, exist_ok=True)
         dest_js = os.path.join(www_dir, CARD_FILENAME)
         shutil.copy2(source_js, dest_js)
-        _LOGGER.info("WeekAqua Card automatically copied to www folder (%s)", dest_js)
     except Exception as err:
         _LOGGER.debug("Could not copy card to www folder: %s", err)
 
-    # 2. Host JS statically via HA HTTP server (/weekaqua_static/weekaqua-card.js)
+    return source_js
+
+
+async def async_setup_frontend(hass: HomeAssistant) -> None:
+    """Automatically host, copy, and register the WeekAqua card with Lovelace asynchronously."""
+    current_dir = os.path.dirname(__file__)
+    www_dir = hass.config.path("www")
+
+    # Run blocking disk I/O in an executor thread to prevent event loop blocking
+    source_js = await hass.async_add_executor_job(_prepare_card_files, current_dir, www_dir)
+
+    if not source_js:
+        _LOGGER.warning("WeekAqua Lovelace Card JS not found")
+        return
+
+    # 1. Host JS statically via HA HTTP server (/weekaqua_static/weekaqua-card.js)
     card_url = f"{URL_BASE}/{CARD_FILENAME}"
     try:
         if hasattr(hass.http, "async_register_static_paths"):
@@ -52,14 +60,13 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
     except Exception as err:
         _LOGGER.debug("Static path registration: %s", err)
 
-    # 3. Add to extra_js_url (loads card globally across Lovelace without manual resource registration)
+    # 2. Add to extra_js_url (loads card globally across Lovelace without manual resource registration)
     try:
         add_extra_js_url(hass, f"{card_url}?v={VERSION}")
-        _LOGGER.info("WeekAqua Card added to Lovelace extra_js_url successfully")
     except Exception as err:
         _LOGGER.debug("add_extra_js_url error: %s", err)
 
-    # 4. Auto-register in Lovelace Resources Storage
+    # 3. Auto-register in Lovelace Resources Storage
     try:
         if "lovelace" in hass.data:
             lovelace = hass.data["lovelace"]

@@ -642,6 +642,23 @@ class WeekAquaCard extends HTMLElement {
       }
     }
   }
+
+  getCardSize() {
+    return 6;
+  }
+
+  static getStubConfig(hass, entities, entitiesFallback) {
+    let lightEntity = 'light.aquarium_light';
+    if (entities && entities.length > 0) {
+      const found = entities.find((e) => e.startsWith('light.'));
+      if (found) lightEntity = found;
+    }
+    return {
+      type: 'custom:weekaqua-card',
+      title: 'WeekAqua Aquarium Light',
+      entity: lightEntity,
+    };
+  }
 }
 
 customElements.define('weekaqua-card', WeekAquaCard);
@@ -651,4 +668,6 @@ window.customCards.push({
   type: 'weekaqua-card',
   name: 'WeekAqua Aquarium Light Card',
   description: 'WPF-style Dark Spectrum Controls & Unlimited Dynamic Schedule for WeekAqua.',
+  preview: true,
+  documentationURL: 'https://github.com/ad960009/ha-weekaqua',
 });
