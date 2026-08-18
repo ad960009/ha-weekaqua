@@ -74,8 +74,8 @@ class WeekAquaProtocol:
             total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (w * 0.08) + (u * 0.08) + (v * 0.08)
         elif model_code in ("5750", "5751", "5752"):  # 7+ Channel Advanced
             total = ((r * 0.29) + (g * 0.69) + (b * 0.73) + (w * 0.10) + (u * 0.40) + (v * 0.40)) / 1.06
-        else:  # Standard 4-Channel (RGBW / RGB-UV)
-            total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (w * 0.08)
+        else:  # Standard 4-Channel (5746/5747)
+            total = (r * 0.39) + (g * 0.41) + (b * 0.53) + (w * 0.11)
 
         rounded = round(total, 1)
         return 100.0 if 100.0 < rounded <= 100.15 else rounded

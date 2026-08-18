@@ -9,19 +9,20 @@
  */
 
 const CARD_PRESETS = {
-  GreenGrass: { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 },
-  RedGrass: { r: 100, g: 30, b: 40, w: 80, uv: 70, v: 60 },
-  FishMixed: { r: 70, g: 80, b: 90, w: 90, uv: 50, v: 40 },
-  Shrimp: { r: 40, g: 60, b: 100, w: 70, uv: 30, v: 20 },
-  Fish: { r: 60, g: 50, b: 100, w: 60, uv: 40, v: 30 },
-  CoralAb: { r: 20, g: 40, b: 100, w: 20, uv: 100, v: 90 },
-  CoralLps: { r: 30, g: 50, b: 100, w: 40, uv: 90, v: 80 },
-  CoralSps: { r: 40, g: 60, b: 100, w: 50, uv: 100, v: 95 },
-  MarineFot: { r: 30, g: 40, b: 100, w: 80, uv: 60, v: 50 },
+  GreenGrass: { r: 75, g: 95, b: 38, w: 75, uv: 10, v: 5 },
+  RedGrass: { r: 95, g: 30, b: 65, w: 75, uv: 15, v: 10 },
+  FishMixed: { r: 70, g: 70, b: 70, w: 95, uv: 5, v: 5 },
+  Shrimp: { r: 40, g: 90, b: 60, w: 80, uv: 10, v: 5 },
+  Fish: { r: 80, g: 50, b: 85, w: 95, uv: 10, v: 10 },
+  CoralMarine: { r: 10, g: 20, b: 95, w: 95, uv: 60, v: 40 },
+  CoralLps: { r: 15, g: 25, b: 90, w: 70, uv: 50, v: 60 },
+  CoralSps: { r: 5, g: 15, b: 100, w: 60, uv: 75, v: 85 },
+  CoralAb: { r: 10, g: 20, b: 100, w: 40, uv: 80, v: 90 },
+  MarineFot: { r: 50, g: 50, b: 85, w: 90, uv: 25, v: 30 },
   DeepBlue: { r: 0, g: 10, b: 100, w: 20, uv: 80, v: 95 },
-  Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
+  Moonlight: { r: 0, g: 0, b: 25, w: 0, uv: 15, v: 30 },
   AlgaeMax: { r: 70, g: 65, b: 70, w: 55, uv: 20, v: 15 },
-  Moonlight: { r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
+  Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
 };
 
 class WeekAquaCard extends HTMLElement {

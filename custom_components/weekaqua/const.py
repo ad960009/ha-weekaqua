@@ -55,58 +55,62 @@ MODEL_5750 = "5750"  # Smart Plug Power Meter
 MODEL_5751 = "5751"  # Mode 8 (7+ CH Advanced 8-Slot)
 MODEL_5752 = "5752"  # Mode 9 (7+ CH Advanced 12-Slot)
 
-# Spectrum Presets: (R, G, B, W, UV, Violet) in percentages (0.0 ~ 100.0)
+# Spectrum Presets: (R, G, B, W, UV, Violet) in percentages (0.0 ~ 100.0) matching C# WeekAquaProtocol.Presets
 PRESETS = {
     "GreenGrass": {
         "name": "Green Plant / 수초 (녹색)",
-        "r": 50.0, "g": 90.0, "b": 60.0, "w": 80.0, "uv": 40.0, "v": 30.0
+        "r": 75.0, "g": 95.0, "b": 38.0, "w": 75.0, "uv": 10.0, "v": 5.0
     },
     "RedGrass": {
         "name": "Red Plant / 수초 (붉은색)",
-        "r": 100.0, "g": 30.0, "b": 40.0, "w": 80.0, "uv": 70.0, "v": 60.0
+        "r": 95.0, "g": 30.0, "b": 65.0, "w": 75.0, "uv": 15.0, "v": 10.0
     },
     "FishMixed": {
         "name": "Mixed Community / 혼양 (수초+열대어)",
-        "r": 70.0, "g": 80.0, "b": 90.0, "w": 90.0, "uv": 50.0, "v": 40.0
+        "r": 70.0, "g": 70.0, "b": 70.0, "w": 95.0, "uv": 5.0, "v": 5.0
     },
     "Shrimp": {
         "name": "Shrimp / 새우 전용",
-        "r": 40.0, "g": 60.0, "b": 100.0, "w": 70.0, "uv": 30.0, "v": 20.0
+        "r": 40.0, "g": 90.0, "b": 60.0, "w": 80.0, "uv": 10.0, "v": 5.0
     },
     "Fish": {
         "name": "Tropical Fish / 열대어 관상",
-        "r": 60.0, "g": 50.0, "b": 100.0, "w": 60.0, "uv": 40.0, "v": 30.0
+        "r": 80.0, "g": 50.0, "b": 85.0, "w": 95.0, "uv": 10.0, "v": 10.0
     },
-    "CoralAb": {
-        "name": "Coral AB+ / 산호 성장 (해수)",
-        "r": 20.0, "g": 40.0, "b": 100.0, "w": 20.0, "uv": 100.0, "v": 90.0
+    "CoralMarine": {
+        "name": "Coral Marine / 산호·해수 기본",
+        "r": 10.0, "g": 20.0, "b": 95.0, "w": 95.0, "uv": 60.0, "v": 40.0
     },
     "CoralLps": {
         "name": "LPS Coral / 연산호",
-        "r": 30.0, "g": 50.0, "b": 100.0, "w": 40.0, "uv": 90.0, "v": 80.0
+        "r": 15.0, "g": 25.0, "b": 90.0, "w": 70.0, "uv": 50.0, "v": 60.0
     },
     "CoralSps": {
         "name": "SPS Coral / 경산호",
-        "r": 40.0, "g": 60.0, "b": 100.0, "w": 50.0, "uv": 100.0, "v": 95.0
+        "r": 5.0, "g": 15.0, "b": 100.0, "w": 60.0, "uv": 75.0, "v": 85.0
+    },
+    "CoralAb": {
+        "name": "Coral AB+ / 형광 산호",
+        "r": 10.0, "g": 20.0, "b": 100.0, "w": 40.0, "uv": 80.0, "v": 90.0
     },
     "MarineFot": {
         "name": "Marine Fish / 해수어 관상",
-        "r": 30.0, "g": 40.0, "b": 100.0, "w": 80.0, "uv": 60.0, "v": 50.0
+        "r": 50.0, "g": 50.0, "b": 85.0, "w": 90.0, "uv": 25.0, "v": 30.0
     },
     "DeepBlue": {
         "name": "Deep Blue / 심해 딥블루",
         "r": 0.0, "g": 10.0, "b": 100.0, "w": 20.0, "uv": 80.0, "v": 95.0
     },
-    "Max": {
-        "name": "Max Peak Power / 100% 피크 출력",
-        "r": 100.0, "g": 100.0, "b": 100.0, "w": 100.0, "uv": 100.0, "v": 100.0
+    "Moonlight": {
+        "name": "Moonlight / 은은한 달빛",
+        "r": 0.0, "g": 0.0, "b": 25.0, "w": 0.0, "uv": 15.0, "v": 30.0
     },
     "AlgaeMax": {
         "name": "Algae Max / 최적 밸런스 피크",
         "r": 70.0, "g": 65.0, "b": 70.0, "w": 55.0, "uv": 20.0, "v": 15.0
     },
-    "Moonlight": {
-        "name": "Moonlight / 심야 달빛",
-        "r": 0.0, "g": 0.0, "b": 4.0, "w": 0.0, "uv": 0.0, "v": 0.0
+    "Max": {
+        "name": "Max Peak Power / 100% 피크 출력",
+        "r": 100.0, "g": 100.0, "b": 100.0, "w": 100.0, "uv": 100.0, "v": 100.0
     }
 }
