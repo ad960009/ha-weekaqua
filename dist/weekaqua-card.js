@@ -247,7 +247,54 @@ class WeekAquaCard extends HTMLElement {
           background: #3F3F46;
           border-color: #60A5FA;
         }
-        /* Schedule Editor */
+        /* Schedule Config */
+        .sched-config-card {
+          background: #27272A;
+          border: 1px solid #3F3F46;
+          border-radius: 8px;
+          padding: 10px 12px;
+          margin-bottom: 12px;
+        }
+        .sched-config-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        .config-item {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .config-item label {
+          font-size: 11px;
+          font-weight: 600;
+          color: #93C5FD;
+        }
+        .config-item input, .config-item select {
+          background: #18181B;
+          border: 1px solid #3F3F46;
+          color: #F4F4F5;
+          padding: 5px 8px;
+          border-radius: 6px;
+          font-size: 12px;
+          outline: none;
+        }
+        .btn-auto-distribute {
+          background: linear-gradient(135deg, #2563EB, #7C3AED);
+          color: #FFF;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-weight: 700;
+          font-size: 12px;
+          cursor: pointer;
+          width: 100%;
+          transition: opacity 0.2s;
+        }
+        .btn-auto-distribute:hover {
+          opacity: 0.9;
+        }
         .sched-wrap {
           display: none;
         }
@@ -318,7 +365,7 @@ class WeekAquaCard extends HTMLElement {
       <div class="card">
         <div class="header">
           <div class="title">
-            <span>🐠</span> ${this._config.title || 'WeekAqua Light'}
+            <span>🐠</span> <span id="card-title-text">${this._config.title || 'WeekAqua Light'}</span>
           </div>
           <div class="tabs">
             <button class="tab-btn active" id="tab-live">Live</button>
@@ -339,34 +386,34 @@ class WeekAquaCard extends HTMLElement {
 
         <!-- Tab 1: Live Manual Controls -->
         <div id="panel-live">
-          <div class="slider-group">
-            <div class="slider-row">
-              <span class="channel-label" style="color: #EF4444">Red</span>
+          <div class="slider-group" id="sliders-container">
+            <div class="slider-row" id="row-r">
+              <span class="channel-label" id="lbl-r" style="color: #EF4444">Red</span>
               <input type="range" id="sl-r" min="0" max="100" value="50">
               <span class="val-badge" id="txt-r">50%</span>
             </div>
-            <div class="slider-row">
-              <span class="channel-label" style="color: #22C55E">Green</span>
+            <div class="slider-row" id="row-g">
+              <span class="channel-label" id="lbl-g" style="color: #22C55E">Green</span>
               <input type="range" id="sl-g" min="0" max="100" value="50">
               <span class="val-badge" id="txt-g">50%</span>
             </div>
-            <div class="slider-row">
-              <span class="channel-label" style="color: #3B82F6">Blue</span>
+            <div class="slider-row" id="row-b">
+              <span class="channel-label" id="lbl-b" style="color: #3B82F6">Blue</span>
               <input type="range" id="sl-b" min="0" max="100" value="50">
               <span class="val-badge" id="txt-b">50%</span>
             </div>
-            <div class="slider-row">
-              <span class="channel-label" style="color: #F4F4F5">White</span>
-              <input type="range" id="sl-w" min="0" max="100" value="50">
-              <span class="val-badge" id="txt-w">50%</span>
-            </div>
-            <div class="slider-row">
-              <span class="channel-label" style="color: #8B5CF6">UV/UVA</span>
+            <div class="slider-row" id="row-uv">
+              <span class="channel-label" id="lbl-uv" style="color: #C084FC">UV/UVA</span>
               <input type="range" id="sl-uv" min="0" max="100" value="0">
               <span class="val-badge" id="txt-uv">0%</span>
             </div>
-            <div class="slider-row">
-              <span class="channel-label" style="color: #EC4899">Violet</span>
+            <div class="slider-row" id="row-w">
+              <span class="channel-label" id="lbl-w" style="color: #F4F4F5">White</span>
+              <input type="range" id="sl-w" min="0" max="100" value="50">
+              <span class="val-badge" id="txt-w">50%</span>
+            </div>
+            <div class="slider-row" id="row-v" style="display: none;">
+              <span class="channel-label" id="lbl-v" style="color: #EC4899">Violet</span>
               <input type="range" id="sl-v" min="0" max="100" value="0">
               <span class="val-badge" id="txt-v">0%</span>
             </div>
@@ -396,6 +443,48 @@ class WeekAquaCard extends HTMLElement {
 
         <!-- Tab 2: Unlimited Schedule Editor -->
         <div id="panel-sched" class="sched-wrap">
+          <!-- Start/End Time & Natural Auto Distribute Config -->
+          <div class="sched-config-card">
+            <div class="sched-config-grid">
+              <div class="config-item">
+                <label>🌅 Sunrise (시작 시각)</label>
+                <input type="text" id="sched-start-time" value="18:00" placeholder="18:00">
+              </div>
+              <div class="config-item">
+                <label>🌇 Sunset (종료 시각)</label>
+                <input type="text" id="sched-end-time" value="02:00" placeholder="02:00">
+              </div>
+            </div>
+            <div class="sched-config-grid">
+              <div class="config-item">
+                <label>🎛️ Slots (슬롯 구성)</label>
+                <select id="sched-slots-select">
+                  <option value="8" selected>8 Slots (M800 Pro / M-Series)</option>
+                  <option value="5">5 Slots (Classic 4-CH)</option>
+                  <option value="12">12 Slots (Multi-CH Pro)</option>
+                </select>
+              </div>
+              <div class="config-item">
+                <label>🎨 Peak Preset (피크 프리셋)</label>
+                <select id="sched-preset-select">
+                  <option value="GreenGrass" selected>🌿 Green Plant</option>
+                  <option value="RedGrass">🍁 Red Plant</option>
+                  <option value="FishMixed">🐠 Mixed</option>
+                  <option value="Shrimp">🦐 Shrimp</option>
+                  <option value="Fish">🐟 Fish</option>
+                  <option value="CoralAb">🪸 Coral AB+</option>
+                  <option value="DeepBlue">🌊 Deep Blue</option>
+                  <option value="Max">💡 Max (100%)</option>
+                  <option value="AlgaeMax">🌿 Algae Max</option>
+                  <option value="Moonlight">🌙 Moonlight</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn-auto-distribute" id="btn-auto-distribute">
+              ⚡ Auto Distribute (자연 곡선 자동 분배)
+            </button>
+          </div>
+
           <svg class="curve-svg" id="curve-svg" viewBox="0 0 240 100" preserveAspectRatio="none">
             <path id="curve-path" d="" fill="rgba(59, 130, 246, 0.2)" stroke="#3B82F6" stroke-width="2"/>
           </svg>
@@ -404,7 +493,7 @@ class WeekAquaCard extends HTMLElement {
             <table>
               <thead>
                 <tr>
-                  <th>Time</th><th>R%</th><th>G%</th><th>B%</th><th>W%</th><th>UV%</th><th>V%</th><th></th>
+                  <th>Time</th><th>R%</th><th>G%</th><th>B%</th><th id="th-ch4">UV%</th><th id="th-ch5">W%</th><th id="th-ch6" style="display:none;">V%</th><th></th>
                 </tr>
               </thead>
               <tbody id="sched-tbody"></tbody>
@@ -413,7 +502,6 @@ class WeekAquaCard extends HTMLElement {
 
           <div style="display: flex; gap: 6px; margin-bottom: 10px;">
             <button class="preset-btn" style="flex: 1;" id="btn-add-pt">+ Add Step</button>
-            <button class="preset-btn" style="flex: 1;" id="btn-auto-calc">⚡ Auto 8-Step Photoperiod</button>
           </div>
 
           <button class="btn-action" id="btn-save-sched">💾 Save & Sync Schedule to Home Assistant</button>
@@ -473,14 +561,16 @@ class WeekAquaCard extends HTMLElement {
     ['r', 'g', 'b', 'w', 'uv', 'v'].forEach((ch) => {
       const sl = root.getElementById(`sl-${ch}`);
       const txt = root.getElementById(`txt-${ch}`);
-      sl.addEventListener('input', () => {
-        txt.textContent = `${sl.value}%`;
-        this._updateGauge();
-      });
-      sl.addEventListener('change', () => {
-        this._sendLiveSpectrum();
-        this._setConnectionStatus(true);
-      });
+      if (sl && txt) {
+        sl.addEventListener('input', () => {
+          txt.textContent = `${sl.value}%`;
+          this._updateGauge();
+        });
+        sl.addEventListener('change', () => {
+          this._sendLiveSpectrum();
+          this._setConnectionStatus(true);
+        });
+      }
     });
 
     // Presets
@@ -492,39 +582,39 @@ class WeekAquaCard extends HTMLElement {
       });
     });
 
-    // Schedule actions
+    // Schedule: Slots select
+    const slotsSelect = root.getElementById('sched-slots-select');
+    if (slotsSelect) {
+      slotsSelect.addEventListener('change', () => {
+        this._userChangedSlots = true;
+      });
+    }
+
+    // Schedule: Auto Distribute
+    const btnAuto = root.getElementById('btn-auto-distribute');
+    if (btnAuto) {
+      btnAuto.addEventListener('click', () => this._autoDistributeSchedule());
+    }
+
+    // Schedule: Add Point
     root.getElementById('btn-add-pt').addEventListener('click', () => {
       this._schedulePoints.push({ time: '12:00', r: 50, g: 50, b: 50, w: 50, uv: 0, v: 0 });
       this._renderScheduleTable();
       this._renderCurve();
     });
 
-    root.getElementById('btn-auto-calc').addEventListener('click', () => {
-      this._schedulePoints = [
-        { time: '08:00', r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0 },
-        { time: '09:30', r: 20, g: 30, b: 20, w: 30, uv: 10, v: 10 },
-        { time: '11:30', r: 60, g: 85, b: 60, w: 75, uv: 40, v: 30 },
-        { time: '14:00', r: 70, g: 100, b: 70, w: 90, uv: 50, v: 40 },
-        { time: '17:00', r: 50, g: 75, b: 50, w: 70, uv: 30, v: 20 },
-        { time: '19:00', r: 25, g: 30, b: 20, w: 25, uv: 10, v: 5 },
-        { time: '20:30', r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
-        { time: '23:00', r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0 },
-      ];
-      this._renderScheduleTable();
-      this._renderCurve();
-    });
-
+    // Schedule: Save
     root.getElementById('btn-save-sched').addEventListener('click', () => this._saveScheduleToHA());
   }
 
   _updateGauge() {
     const root = this.shadowRoot;
-    const r = parseFloat(root.getElementById('sl-r').value);
-    const g = parseFloat(root.getElementById('sl-g').value);
-    const b = parseFloat(root.getElementById('sl-b').value);
-    const w = parseFloat(root.getElementById('sl-w').value);
-    const uv = parseFloat(root.getElementById('sl-uv').value);
-    const v = parseFloat(root.getElementById('sl-v').value);
+    const r = parseFloat(root.getElementById('sl-r').value) || 0;
+    const g = parseFloat(root.getElementById('sl-g').value) || 0;
+    const b = parseFloat(root.getElementById('sl-b').value) || 0;
+    const w = parseFloat(root.getElementById('sl-w').value) || 0;
+    const uv = parseFloat(root.getElementById('sl-uv').value) || 0;
+    const v = parseFloat(root.getElementById('sl-v').value) || 0;
 
     const total = this._calculatePower(r, g, b, w, uv, v);
     root.getElementById('gauge-fill').style.width = `${total}%`;
@@ -533,12 +623,12 @@ class WeekAquaCard extends HTMLElement {
 
   _sendLiveSpectrum() {
     const root = this.shadowRoot;
-    const r = parseFloat(root.getElementById('sl-r').value);
-    const g = parseFloat(root.getElementById('sl-g').value);
-    const b = parseFloat(root.getElementById('sl-b').value);
-    const w = parseFloat(root.getElementById('sl-w').value);
-    const uv = parseFloat(root.getElementById('sl-uv').value);
-    const v = parseFloat(root.getElementById('sl-v').value);
+    const r = parseFloat(root.getElementById('sl-r').value) || 0;
+    const g = parseFloat(root.getElementById('sl-g').value) || 0;
+    const b = parseFloat(root.getElementById('sl-b').value) || 0;
+    const w = parseFloat(root.getElementById('sl-w').value) || 0;
+    const uv = parseFloat(root.getElementById('sl-uv').value) || 0;
+    const v = parseFloat(root.getElementById('sl-v').value) || 0;
 
     if (this._hass) {
       this._hass.callService('weekaqua', 'set_spectrum', {
@@ -582,9 +672,138 @@ class WeekAquaCard extends HTMLElement {
     this._updateGauge();
   }
 
+  _autoDistributeSchedule() {
+    const root = this.shadowRoot;
+    const startInput = root.getElementById('sched-start-time');
+    const endInput = root.getElementById('sched-end-time');
+    const slotsSelect = root.getElementById('sched-slots-select');
+    const presetSelect = root.getElementById('sched-preset-select');
+
+    const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
+    const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
+    const maxSlots = slotsSelect ? parseInt(slotsSelect.value, 10) || 8 : 8;
+    const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
+    const baseSpec = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
+
+    const parseMin = (s) => {
+      if (!s) return 0;
+      if (s === '24:00' || s === '24:0') return 1440;
+      const parts = s.split(':').map(Number);
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    };
+
+    const formatMin = (m) => {
+      if (m === 1440) return '24:00';
+      const norm = ((m % 1440) + 1440) % 1440;
+      const h = Math.floor(norm / 60);
+      const min = Math.round(norm % 60);
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    };
+
+    // 5/8/12 Slots Intensity Curves
+    let curves = [];
+    if (maxSlots === 5) {
+      curves = [0.25, 0.70, 1.00, 0.35, 0.00];
+    } else if (maxSlots === 12) {
+      curves = [0.15, 0.30, 0.50, 0.70, 0.85, 1.00, 0.85, 0.70, 0.50, 0.30, 0.15, 0.00];
+    } else {
+      // 8-Slot (M800 Pro / Default): Slot 4 single Peak, 7 smooth daytime steps
+      curves = [0.20, 0.50, 0.75, 1.00, 0.75, 0.50, 0.20, 0.00];
+    }
+
+    const startMin = parseMin(startStr);
+    const endMin = parseMin(endStr);
+    const newPoints = [];
+    const daySlots = maxSlots - 1; // 7 daytime steps
+
+    if (endMin <= startMin) {
+      // Crosses midnight (e.g. 18:00 to 02:00)
+      const day1Min = 1440 - startMin; // 18:00 ~ 24:00 (360m)
+      const day2Min = endMin;          // 00:00 ~ 02:00 (120m)
+      const totalDayMin = day1Min + day2Min; // 480m
+
+      let slotsDay1 = Math.max(1, Math.min(daySlots - 1, Math.round(daySlots * (day1Min / totalDayMin))));
+      let slotsDay2 = daySlots - slotsDay1;
+
+      const stepDay1 = day1Min / slotsDay1;
+      const stepDay2 = day2Min / slotsDay2;
+
+      let slotIdx = 0;
+
+      // Day 1 Slots (18:00 up to before 24:00)
+      for (let i = 0; i < slotsDay1; i++) {
+        const t = startMin + i * stepDay1;
+        const factor = curves[slotIdx++];
+        newPoints.push({
+          time: formatMin(t),
+          r: Math.round(baseSpec.r * factor),
+          g: Math.round(baseSpec.g * factor),
+          b: Math.round(baseSpec.b * factor),
+          w: Math.round(baseSpec.w * factor),
+          uv: Math.round((baseSpec.uv || 0) * factor),
+          v: Math.round((baseSpec.v || 0) * factor),
+        });
+      }
+
+      // Day 2 Slots (00:00 up to before sunset)
+      for (let i = 0; i < slotsDay2; i++) {
+        const t = i * stepDay2;
+        const factor = curves[slotIdx++];
+        newPoints.push({
+          time: formatMin(t),
+          r: Math.round(baseSpec.r * factor),
+          g: Math.round(baseSpec.g * factor),
+          b: Math.round(baseSpec.b * factor),
+          w: Math.round(baseSpec.w * factor),
+          uv: Math.round((baseSpec.uv || 0) * factor),
+          v: Math.round((baseSpec.v || 0) * factor),
+        });
+      }
+
+      // Night Slot (At sunset endMin, e.g. 02:00)
+      newPoints.push({
+        time: formatMin(endMin),
+        r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0,
+      });
+    } else {
+      // Same-day (e.g. 08:00 to 20:00)
+      const totalDayMin = endMin - startMin;
+      const step = totalDayMin / daySlots;
+
+      for (let i = 0; i < daySlots; i++) {
+        const t = startMin + i * step;
+        const factor = curves[i];
+        newPoints.push({
+          time: formatMin(t),
+          r: Math.round(baseSpec.r * factor),
+          g: Math.round(baseSpec.g * factor),
+          b: Math.round(baseSpec.b * factor),
+          w: Math.round(baseSpec.w * factor),
+          uv: Math.round((baseSpec.uv || 0) * factor),
+          v: Math.round((baseSpec.v || 0) * factor),
+        });
+      }
+
+      // Night Slot (At sunset endMin)
+      newPoints.push({
+        time: formatMin(endMin),
+        r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0,
+      });
+    }
+
+    this._schedulePoints = newPoints;
+    this._renderScheduleTable();
+    this._renderCurve();
+  }
+
   _renderScheduleTable() {
-    const tbody = this.shadowRoot.getElementById('sched-tbody');
+    const root = this.shadowRoot;
+    const tbody = root.getElementById('sched-tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
+
+    const is4ChRgbUv = this._modelInfo ? this._modelInfo.is_4ch_rgb_uv : true;
+    const has6ch = this._modelInfo ? this._modelInfo.has_6ch : false;
 
     this._schedulePoints.forEach((pt, idx) => {
       const tr = document.createElement('tr');
@@ -593,9 +812,9 @@ class WeekAquaCard extends HTMLElement {
         <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r"></td>
         <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g"></td>
         <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b"></td>
-        <td><input type="number" min="0" max="100" value="${pt.w}" data-k="w"></td>
-        <td><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv"></td>
-        <td><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v"></td>
+        <td><input type="number" min="0" max="100" value="${is4ChRgbUv ? (pt.uv || 0) : pt.w}" data-k="${is4ChRgbUv ? 'uv' : 'w'}"></td>
+        <td><input type="number" min="0" max="100" value="${is4ChRgbUv ? pt.w : (pt.uv || 0)}" data-k="${is4ChRgbUv ? 'w' : 'uv'}"></td>
+        <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v"></td>
         <td><button class="btn-sm" data-del="${idx}">✕</button></td>
       `;
 
@@ -621,16 +840,20 @@ class WeekAquaCard extends HTMLElement {
     const path = this.shadowRoot.getElementById('curve-path');
     if (!path || this._schedulePoints.length === 0) return;
 
+    const parseMin = (s) => {
+      if (!s) return 0;
+      if (s === '24:00' || s === '24:0') return 1440;
+      const parts = s.split(':').map(Number);
+      return (parts[0] || 0) * 60 + (parts[1] || 0);
+    };
+
     const sorted = [...this._schedulePoints].sort((a, b) => {
-      const tA = a.time.split(':').map(Number);
-      const tB = b.time.split(':').map(Number);
-      return (tA[0] * 60 + tA[1]) - (tB[0] * 60 + tB[1]);
+      return parseMin(a.time) - parseMin(b.time);
     });
 
     let d = 'M 0 100 ';
     sorted.forEach((pt, i) => {
-      const parts = pt.time.split(':').map(Number);
-      const min = parts[0] * 60 + (parts[1] || 0);
+      const min = parseMin(pt.time);
       const x = (min / 1440) * 240;
       const power = this._calculatePower(pt.r, pt.g, pt.b, pt.w, pt.uv, pt.v);
       const y = 100 - power;
@@ -648,7 +871,7 @@ class WeekAquaCard extends HTMLElement {
         device_id: this._config.device_id || '',
         points: this._schedulePoints,
       });
-      alert('✅ WeekAqua Unlimited Schedule saved and applied!');
+      alert('✅ WeekAqua Natural Schedule saved and synced to Home Assistant!');
     }
   }
 
@@ -667,29 +890,95 @@ class WeekAquaCard extends HTMLElement {
     }
   }
 
-  _updateState() {
-    // Sync entity attributes if available
-    if (this._hass && this._config.entity) {
-      const stateObj = this._hass.states[this._config.entity];
-      if (stateObj) {
-        const isOnline = stateObj.state === 'on' || (stateObj.attributes && stateObj.attributes.connected);
-        this._setConnectionStatus(isOnline);
+  _applyModelLayout(attr) {
+    if (!attr) return;
+    this._modelInfo = attr;
+    const root = this.shadowRoot;
+    if (!root) return;
 
-        if (stateObj.attributes) {
-          const attr = stateObj.attributes;
-          if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
-            this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);
-          } else if (attr.rgbw_color) {
-            const [r255, g255, b255, w255] = attr.rgbw_color;
-            this._setSliderValues(
-              Math.round(r255 / 2.55),
-              Math.round(g255 / 2.55),
-              Math.round(b255 / 2.55),
-              Math.round(w255 / 2.55),
-              0,
-              0
-            );
-          }
+    const is4ChRgbUv = attr.is_4ch_rgb_uv || (attr.device_name && (attr.device_name.includes('M800') || attr.device_name.includes('M600') || attr.device_name.includes('M-PRO')));
+    const hasUv = attr.has_uv || is4ChRgbUv;
+    const has6ch = attr.has_6ch;
+    const maxSlots = attr.max_slots || (is4ChRgbUv ? 8 : 8);
+
+    // Dynamic Title
+    const titleEl = root.getElementById('card-title-text');
+    if (titleEl && !this._config.title && attr.device_name) {
+      titleEl.textContent = attr.device_name;
+    }
+
+    // Sliders Ordering & Labels
+    const rowUv = root.getElementById('row-uv');
+    const rowW = root.getElementById('row-w');
+    const rowV = root.getElementById('row-v');
+    const lblUv = root.getElementById('lbl-uv');
+    const lblW = root.getElementById('lbl-w');
+    const container = root.getElementById('sliders-container');
+
+    const thCh4 = root.getElementById('th-ch4');
+    const thCh5 = root.getElementById('th-ch5');
+    const thCh6 = root.getElementById('th-ch6');
+
+    if (is4ChRgbUv) {
+      // 4-CH RGB/UV (e.g. M800 Pro): Place UV directly after Blue
+      if (lblUv) {
+        lblUv.textContent = 'UV (Ultraviolet)';
+        lblUv.style.color = '#C084FC';
+      }
+      if (lblW) lblW.textContent = 'White (W)';
+      if (rowUv && rowW && container) {
+        container.insertBefore(rowUv, rowW);
+      }
+      if (rowV) rowV.style.display = 'none';
+      if (thCh4) thCh4.textContent = 'UV%';
+      if (thCh5) thCh5.textContent = 'W%';
+      if (thCh6) thCh6.style.display = 'none';
+    } else {
+      // Standard RGBW / RGBW+UV / 6CH
+      if (lblW) lblW.textContent = 'White (W)';
+      if (lblUv) {
+        lblUv.textContent = 'UV/UVA';
+        lblUv.style.color = '#8B5CF6';
+      }
+      if (rowW && rowUv && container) {
+        container.insertBefore(rowW, rowUv);
+      }
+      if (rowV) rowV.style.display = has6ch ? 'grid' : 'none';
+      if (thCh4) thCh4.textContent = 'W%';
+      if (thCh5) thCh5.textContent = 'UV%';
+      if (thCh6) thCh6.style.display = has6ch ? '' : 'none';
+    }
+
+    // Auto-select slot count if not manually modified
+    const slotsSelect = root.getElementById('sched-slots-select');
+    if (slotsSelect && !this._userChangedSlots && maxSlots) {
+      slotsSelect.value = String(maxSlots);
+    }
+  }
+
+  _updateState() {
+    if (!this._hass || !this._config.entity) return;
+    const stateObj = this._hass.states[this._config.entity];
+    if (stateObj) {
+      const isOnline = stateObj.state === 'on' || (stateObj.attributes && stateObj.attributes.connected);
+      this._setConnectionStatus(isOnline);
+
+      if (stateObj.attributes) {
+        const attr = stateObj.attributes;
+        this._applyModelLayout(attr);
+
+        if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
+          this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);
+        } else if (attr.rgbw_color) {
+          const [r255, g255, b255, w255] = attr.rgbw_color;
+          this._setSliderValues(
+            Math.round(r255 / 2.55),
+            Math.round(g255 / 2.55),
+            Math.round(b255 / 2.55),
+            Math.round(w255 / 2.55),
+            0,
+            0
+          );
         }
       }
     }
