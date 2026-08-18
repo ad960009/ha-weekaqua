@@ -173,7 +173,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._write_queue.put(packet)
 
     async def _process_write_queue(self) -> None:
-        """Sequential writer with 300ms pacing to prevent packet collision."""
+        """Sequential writer with 500ms pacing to prevent packet collision."""
         while True:
             packet = await self._write_queue.get()
             try:
@@ -182,7 +182,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if connected and self._client and self._client.is_connected:
                         await self._client.write_gatt_char(WRITE_CHAR_UUID, packet, response=False)
                         _LOGGER.debug("TX -> %s: %s", self.mac, packet.hex().upper())
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.5)
                     else:
                         _LOGGER.debug("Skipped TX (device offline): %s", packet.hex().upper())
             except Exception as ex:
