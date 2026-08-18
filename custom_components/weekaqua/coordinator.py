@@ -159,6 +159,25 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return False
 
+        # Auto-update device_name and model_code from live BLE scan data if currently generic
+        if ble_device.name and (not self.device_name or self.device_name.startswith("WeekAqua (") or self.device_name == "WeekAqua Light"):
+            self.device_name = ble_device.name
+            _LOGGER.info("Auto-discovered BLE device name: %s for %s", self.device_name, self.mac)
+
+        if not self.model_code:
+            try:
+                for s_info in bluetooth.async_discovered_service_info(self.hass):
+                    if s_info.address.upper() == self.mac.upper() and s_info.manufacturer_data:
+                        for m_id, m_data in s_info.manufacturer_data.items():
+                            hex_str = m_data.hex().upper()
+                            for target in ("5752", "5751", "5750", "5749", "5748", "5747", "5746", "5745"):
+                                if target in hex_str:
+                                    self.model_code = target
+                                    _LOGGER.info("Auto-discovered model code %s for %s", self.model_code, self.mac)
+                                    break
+            except Exception:
+                pass
+
         try:
             _LOGGER.info("Connecting to WeekAqua BLE %s (%s)...", self.device_name, self.mac)
             self._client = await establish_connection(

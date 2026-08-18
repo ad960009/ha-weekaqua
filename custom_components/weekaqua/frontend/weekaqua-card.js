@@ -881,9 +881,11 @@ class WeekAquaCard extends HTMLElement {
     const root = this.shadowRoot;
     if (!root) return;
 
-    const is4ChRgbUv = attr.is_4ch_rgb_uv || (attr.device_name && (attr.device_name.includes('M800') || attr.device_name.includes('M600') || attr.device_name.includes('M-PRO')));
-    const hasUv = attr.has_uv || is4ChRgbUv;
-    const has6ch = attr.has_6ch;
+    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
+      ? Boolean(this._config.is_4ch_rgb_uv)
+      : (attr.is_4ch_rgb_uv || (attr.device_name && (attr.device_name.includes('M800') || attr.device_name.includes('M600') || attr.device_name.includes('M-PRO') || attr.device_name.includes('S-PRO') || attr.device_name.includes('T90'))));
+    const hasUv = this._config.has_uv !== undefined ? Boolean(this._config.has_uv) : (attr.has_uv || is4ChRgbUv);
+    const has6ch = this._config.has_6ch !== undefined ? Boolean(this._config.has_6ch) : attr.has_6ch;
     const maxSlots = attr.max_slots || (is4ChRgbUv ? 8 : 8);
 
     // Dynamic Title
