@@ -2,8 +2,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect WeekAqua Bluetooth Light",
-        "description": "Select a discovered WeekAqua light or enter its Bluetooth MAC address manually.",
+        "title": "Select WeekAqua Bluetooth Light",
+        "description": "Choose a discovered WeekAqua device from the list, or select manual entry.",
+        "data": {
+          "mac": "Discovered Devices",
+          "name": "Custom Name"
+        }
+      },
+      "manual": {
+        "title": "Enter WeekAqua MAC Address Manually",
+        "description": "Enter the Bluetooth MAC address of your WeekAqua light (e.g. C8:47:80:60:C6:65).",
         "data": {
           "mac": "Bluetooth MAC Address",
           "name": "Custom Name"
@@ -16,6 +24,9 @@
           "name": "Device Name"
         }
       }
+    },
+    "error": {
+      "invalid_mac": "Invalid Bluetooth MAC address format (expected e.g. C8:47:80:60:C6:65)."
     },
     "abort": {
       "already_configured": "This WeekAqua device is already configured."
