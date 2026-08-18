@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WeekAqua Lovelace Card UI Preview</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 30px 20px;
+      background-color: #0F172A;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #F8FAFC;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .preview-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .preview-header h1 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      color: #60A5FA;
+    }
+    .preview-header p {
+      margin: 0;
+      font-size: 13px;
+      color: #94A3B8;
+    }
+    .ha-dashboard-mock {
+      width: 100%;
+      max-width: 480px;
+      background: #090D16;
+      border: 1px solid #1E293B;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    }
+    .log-box {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 480px;
+      background: #1E293B;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 11px;
+      color: #38BDF8;
+      box-sizing: border-box;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+  <script src="./dist/weekaqua-card.js"></script>
+</head>
+<body>
+
+  <div class="preview-header">
+    <h1>🐠 WeekAqua Lovelace Card Preview</h1>
+    <p>Home Assistant 설치 없이 브라우저에서 바로 확인하는 독립 실행형 UI 데모</p>
+  </div>
+
+  <div class="ha-dashboard-mock">
+    <!-- Lovelace Custom Element Container -->
+    <weekaqua-card id="my-card"></weekaqua-card>
+  </div>
+
+  <div class="log-box" id="log-box">
+    [Mock HA Engine Initialized] Ready for interaction.
+  </div>
+
+  <script>
+    const logBox = document.getElementById('log-box');
+    function addLog(msg) {
+      const line = document.createElement('div');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logBox.prepend(line);
+    }
+
+    // Mock Home Assistant Instance
+    const mockHass = {
+      states: {
+        'light.aquarium_light': {
+          state: 'on',
+          attributes: {
+            friendly_name: '거실 수초항 조명',
+            brightness: 200,
+          }
+        }
+      },
+      callService: function(domain, service, data) {
+        addLog(`Service Call -> ${domain}.${service}(${JSON.stringify(data)})`);
+        if (service === 'apply_preset') {
+          const p = data.preset;
+          const card = document.getElementById('my-card');
+          const root = card.shadowRoot;
+          // Apply preset to demo sliders
+          const presets = {
+            GreenGrass: { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 },
+            RedGrass: { r: 100, g: 30, b: 40, w: 80, uv: 70, v: 60 },
+            FishMixed: { r: 70, g: 80, b: 90, w: 90, uv: 50, v: 40 },
+            Shrimp: { r: 40, g: 60, b: 100, w: 70, uv: 30, v: 20 },
+            CoralAb: { r: 20, g: 40, b: 100, w: 20, uv: 100, v: 90 },
+            Moonlight: { r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 }
+          };
+          if (presets[p]) {
+            const spec = presets[p];
+            root.getElementById('sl-r').value = spec.r;
+            root.getElementById('sl-g').value = spec.g;
+            root.getElementById('sl-b').value = spec.b;
+            root.getElementById('sl-w').value = spec.w;
+            root.getElementById('sl-uv').value = spec.uv;
+            root.getElementById('sl-v').value = spec.v;
+            root.getElementById('txt-r').textContent = spec.r + '%';
+            root.getElementById('txt-g').textContent = spec.g + '%';
+            root.getElementById('txt-b').textContent = spec.b + '%';
+            root.getElementById('txt-w').textContent = spec.w + '%';
+            root.getElementById('txt-uv').textContent = spec.uv + '%';
+            root.getElementById('txt-v').textContent = spec.v + '%';
+            card._updateGauge();
+          }
+        }
+      }
+    };
+
+    // Initialize Card with Config & Mock Hass
+    window.addEventListener('DOMContentLoaded', () => {
+      const card = document.getElementById('my-card');
+      card.setConfig({
+        title: '거실 수초항 조명 (Preview)',
+        entity: 'light.aquarium_light',
+        device_id: 'preview_mock_dev'
+      });
+      card.hass = mockHass;
+    });
+  </script>
+
+</body>
+</html>
