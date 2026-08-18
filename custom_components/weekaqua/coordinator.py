@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import asyncio
-from datetime import datetime, time, timedelta
+from datetime import datetime, date, time, timedelta
 import logging
 from typing import Any
 
@@ -77,6 +77,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._queue_task: asyncio.Task | None = None
         self._schedule_unsub: Any = None
         self._last_sent_spectrum: bytes | None = None
+        self._last_rtc_sync_date: date | None = None
 
         super().__init__(
             hass,
@@ -258,8 +259,20 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic schedule evaluator and BLE synchronization tick."""
+        now = datetime.now()
+
+        # Daily Automatic RTC Synchronization (Runs once per day at midnight / date change)
+        if self._last_rtc_sync_date != now.date():
+            self._last_rtc_sync_date = now.date()
+            _LOGGER.info(
+                "Performing daily automatic RTC clock sync for WeekAqua (%s) at %s",
+                self.mac,
+                now.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(now))
+
         if self.schedule_enabled and self.schedule_points:
-            target = self.calculate_interpolated_spectrum()
+            target = self.calculate_interpolated_spectrum(now.time())
             self.current_r = target.r
             self.current_g = target.g
             self.current_b = target.b
