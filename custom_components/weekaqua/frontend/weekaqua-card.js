@@ -457,12 +457,8 @@ class WeekAquaCard extends HTMLElement {
             </div>
             <div class="sched-config-grid">
               <div class="config-item">
-                <label>🎛️ Slots (슬롯 구성)</label>
-                <select id="sched-slots-select">
-                  <option value="8" selected>8 Slots (M800 Pro / M-Series)</option>
-                  <option value="5">5 Slots (Classic 4-CH)</option>
-                  <option value="12">12 Slots (Multi-CH Pro)</option>
-                </select>
+                <label>🎛️ Slots (슬롯 수)</label>
+                <input type="number" id="sched-slots-input" min="3" max="32" value="8" style="width: 100%;">
               </div>
               <div class="config-item">
                 <label>🎨 Peak Preset (피크 프리셋)</label>
@@ -481,7 +477,7 @@ class WeekAquaCard extends HTMLElement {
               </div>
             </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
-              ⚡ Auto Distribute (자연 곡선 자동 분배)
+              ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
             </button>
           </div>
 
@@ -582,14 +578,6 @@ class WeekAquaCard extends HTMLElement {
       });
     });
 
-    // Schedule: Slots select
-    const slotsSelect = root.getElementById('sched-slots-select');
-    if (slotsSelect) {
-      slotsSelect.addEventListener('change', () => {
-        this._userChangedSlots = true;
-      });
-    }
-
     // Schedule: Auto Distribute
     const btnAuto = root.getElementById('btn-auto-distribute');
     if (btnAuto) {
@@ -599,6 +587,8 @@ class WeekAquaCard extends HTMLElement {
     // Schedule: Add Point
     root.getElementById('btn-add-pt').addEventListener('click', () => {
       this._schedulePoints.push({ time: '12:00', r: 50, g: 50, b: 50, w: 50, uv: 0, v: 0 });
+      const slotsInput = root.getElementById('sched-slots-input');
+      if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
       this._renderScheduleTable();
       this._renderCurve();
     });
@@ -676,12 +666,12 @@ class WeekAquaCard extends HTMLElement {
     const root = this.shadowRoot;
     const startInput = root.getElementById('sched-start-time');
     const endInput = root.getElementById('sched-end-time');
-    const slotsSelect = root.getElementById('sched-slots-select');
+    const slotsInput = root.getElementById('sched-slots-input');
     const presetSelect = root.getElementById('sched-preset-select');
 
     const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
-    const maxSlots = slotsSelect ? parseInt(slotsSelect.value, 10) || 8 : 8;
+    const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 8) : 8;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
     const baseSpec = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
 
@@ -700,21 +690,10 @@ class WeekAquaCard extends HTMLElement {
       return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
     };
 
-    // 5/8/12 Slots Intensity Curves
-    let curves = [];
-    if (maxSlots === 5) {
-      curves = [0.25, 0.70, 1.00, 0.35, 0.00];
-    } else if (maxSlots === 12) {
-      curves = [0.15, 0.30, 0.50, 0.70, 0.85, 1.00, 0.85, 0.70, 0.50, 0.30, 0.15, 0.00];
-    } else {
-      // 8-Slot (M800 Pro / Default): Slot 4 single Peak, 7 smooth daytime steps
-      curves = [0.20, 0.50, 0.75, 1.00, 0.75, 0.50, 0.20, 0.00];
-    }
-
     const startMin = parseMin(startStr);
     const endMin = parseMin(endStr);
     const newPoints = [];
-    const daySlots = maxSlots - 1; // 7 daytime steps
+    const daySlots = totalSlots - 1; // Number of daylight steps (leaving 1 for sunset/night)
 
     if (endMin <= startMin) {
       // Crosses midnight (e.g. 18:00 to 02:00)
@@ -730,10 +709,12 @@ class WeekAquaCard extends HTMLElement {
 
       let slotIdx = 0;
 
-      // Day 1 Slots (18:00 up to before 24:00)
+      // Day 1 Slots (Pre-midnight: 18:00 up to before 24:00)
       for (let i = 0; i < slotsDay1; i++) {
         const t = startMin + i * stepDay1;
-        const factor = curves[slotIdx++];
+        // Pure mathematical sinusoidal natural bell curve: sin(((i+1)/(daySlots+1)) * PI)
+        const factor = Math.sin(((slotIdx + 1) / (daySlots + 1)) * Math.PI);
+        slotIdx++;
         newPoints.push({
           time: formatMin(t),
           r: Math.round(baseSpec.r * factor),
@@ -745,10 +726,11 @@ class WeekAquaCard extends HTMLElement {
         });
       }
 
-      // Day 2 Slots (00:00 up to before sunset)
+      // Day 2 Slots (Post-midnight: 00:00 up to before sunset)
       for (let i = 0; i < slotsDay2; i++) {
         const t = i * stepDay2;
-        const factor = curves[slotIdx++];
+        const factor = Math.sin(((slotIdx + 1) / (daySlots + 1)) * Math.PI);
+        slotIdx++;
         newPoints.push({
           time: formatMin(t),
           r: Math.round(baseSpec.r * factor),
@@ -772,7 +754,7 @@ class WeekAquaCard extends HTMLElement {
 
       for (let i = 0; i < daySlots; i++) {
         const t = startMin + i * step;
-        const factor = curves[i];
+        const factor = Math.sin(((i + 1) / (daySlots + 1)) * Math.PI);
         newPoints.push({
           time: formatMin(t),
           r: Math.round(baseSpec.r * factor),
@@ -828,6 +810,8 @@ class WeekAquaCard extends HTMLElement {
 
       tr.querySelector('button[data-del]').addEventListener('click', () => {
         this._schedulePoints.splice(idx, 1);
+        const slotsInput = root.getElementById('sched-slots-input');
+        if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
         this._renderScheduleTable();
         this._renderCurve();
       });
@@ -949,10 +933,9 @@ class WeekAquaCard extends HTMLElement {
       if (thCh6) thCh6.style.display = has6ch ? '' : 'none';
     }
 
-    // Auto-select slot count if not manually modified
-    const slotsSelect = root.getElementById('sched-slots-select');
-    if (slotsSelect && !this._userChangedSlots && maxSlots) {
-      slotsSelect.value = String(maxSlots);
+    const slotsInput = root.getElementById('sched-slots-input');
+    if (slotsInput && !this._userChangedSlots && this._schedulePoints) {
+      slotsInput.value = String(this._schedulePoints.length);
     }
   }
 
