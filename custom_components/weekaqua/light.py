@@ -34,7 +34,7 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
 
     _attr_has_entity_name = True
     _attr_color_mode = ColorMode.RGBW
-    _attr_supported_color_modes = {ColorMode.RGBW, ColorMode.BRIGHTNESS, ColorMode.ONOFF}
+    _attr_supported_color_modes = {ColorMode.RGBW}
 
     def __init__(self, coordinator: WeekAquaCoordinator, entry: ConfigEntry) -> None:
         """Initialize the light."""
