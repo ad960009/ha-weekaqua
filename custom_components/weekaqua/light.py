@@ -88,6 +88,22 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             int(round(self.coordinator.current_w * 2.55)),
         )
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes for card and automations."""
+        return {
+            "r": self.coordinator.current_r,
+            "g": self.coordinator.current_g,
+            "b": self.coordinator.current_b,
+            "w": self.coordinator.current_w,
+            "uv": self.coordinator.current_uv,
+            "v": self.coordinator.current_v,
+            "fan": self.coordinator.current_fan,
+            "power_pct": self.coordinator.total_power_pct,
+            "connected": self.coordinator.is_connected,
+            "schedule_enabled": self.coordinator.schedule_enabled,
+        }
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the light or apply requested color/brightness."""
         if ATTR_RGBW_COLOR in kwargs:

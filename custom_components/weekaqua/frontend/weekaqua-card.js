@@ -8,6 +8,22 @@
  *  - Unlimited Steps Dynamic Schedule Editor with 24-Hour SVG Curve Visualization
  */
 
+const CARD_PRESETS = {
+  GreenGrass: { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 },
+  RedGrass: { r: 100, g: 30, b: 40, w: 80, uv: 70, v: 60 },
+  FishMixed: { r: 70, g: 80, b: 90, w: 90, uv: 50, v: 40 },
+  Shrimp: { r: 40, g: 60, b: 100, w: 70, uv: 30, v: 20 },
+  Fish: { r: 60, g: 50, b: 100, w: 60, uv: 40, v: 30 },
+  CoralAb: { r: 20, g: 40, b: 100, w: 20, uv: 100, v: 90 },
+  CoralLps: { r: 30, g: 50, b: 100, w: 40, uv: 90, v: 80 },
+  CoralSps: { r: 40, g: 60, b: 100, w: 50, uv: 100, v: 95 },
+  MarineFot: { r: 30, g: 40, b: 100, w: 80, uv: 60, v: 50 },
+  DeepBlue: { r: 0, g: 10, b: 100, w: 20, uv: 80, v: 95 },
+  Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
+  AlgaeMax: { r: 70, g: 65, b: 70, w: 55, uv: 20, v: 15 },
+  Moonlight: { r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
+};
+
 class WeekAquaCard extends HTMLElement {
   constructor() {
     super();
@@ -539,12 +555,31 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _applyPreset(presetName) {
+    const p = CARD_PRESETS[presetName];
+    if (p) {
+      this._setSliderValues(p.r, p.g, p.b, p.w, p.uv || 0, p.v || 0);
+    }
     if (this._hass) {
       this._hass.callService('weekaqua', 'apply_preset', {
         device_id: this._config.device_id || '',
         preset: presetName,
       });
     }
+  }
+
+  _setSliderValues(r, g, b, w, uv = 0, v = 0) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const channels = { r, g, b, w, uv, v };
+    for (const [ch, val] of Object.entries(channels)) {
+      const sl = root.getElementById(`sl-${ch}`);
+      const txt = root.getElementById(`txt-${ch}`);
+      if (sl && txt) {
+        sl.value = val;
+        txt.textContent = `${Math.round(val)}%`;
+      }
+    }
+    this._updateGauge();
   }
 
   _renderScheduleTable() {
@@ -636,9 +671,26 @@ class WeekAquaCard extends HTMLElement {
     // Sync entity attributes if available
     if (this._hass && this._config.entity) {
       const stateObj = this._hass.states[this._config.entity];
-      if (stateObj && stateObj.attributes) {
-        const isOnline = stateObj.state === 'on' || stateObj.attributes.connected;
+      if (stateObj) {
+        const isOnline = stateObj.state === 'on' || (stateObj.attributes && stateObj.attributes.connected);
         this._setConnectionStatus(isOnline);
+
+        if (stateObj.attributes) {
+          const attr = stateObj.attributes;
+          if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
+            this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);
+          } else if (attr.rgbw_color) {
+            const [r255, g255, b255, w255] = attr.rgbw_color;
+            this._setSliderValues(
+              Math.round(r255 / 2.55),
+              Math.round(g255 / 2.55),
+              Math.round(b255 / 2.55),
+              Math.round(w255 / 2.55),
+              0,
+              0
+            );
+          }
+        }
       }
     }
   }
