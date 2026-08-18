@@ -22,6 +22,7 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.BUTTON,
 ]
 
 # Service Schemas
@@ -29,6 +30,8 @@ SERVICE_APPLY_PRESET = "apply_preset"
 SERVICE_SET_SPECTRUM = "set_spectrum"
 SERVICE_SET_SCHEDULE = "set_schedule"
 SERVICE_SYNC_RTC = "sync_rtc"
+SERVICE_CONNECT = "connect"
+SERVICE_DISCONNECT = "disconnect"
 
 SCHEMA_APPLY_PRESET = vol.Schema({
     vol.Required("device_id"): cv.string,
@@ -106,11 +109,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for coord in hass.data[DOMAIN].values():
             await coord.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
 
+    async def handle_connect(call: ServiceCall) -> None:
+        for coord in hass.data[DOMAIN].values():
+            await coord.async_connect()
+
+    async def handle_disconnect(call: ServiceCall) -> None:
+        for coord in hass.data[DOMAIN].values():
+            await coord.async_disconnect()
+
     if not hass.services.has(DOMAIN, SERVICE_APPLY_PRESET):
         hass.services.async_register(DOMAIN, SERVICE_APPLY_PRESET, handle_apply_preset, schema=SCHEMA_APPLY_PRESET)
         hass.services.async_register(DOMAIN, SERVICE_SET_SPECTRUM, handle_set_spectrum, schema=SCHEMA_SET_SPECTRUM)
         hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule, schema=SCHEMA_SET_SCHEDULE)
         hass.services.async_register(DOMAIN, SERVICE_SYNC_RTC, handle_sync_rtc)
+        hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect)
+        hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect)
 
     return True
 

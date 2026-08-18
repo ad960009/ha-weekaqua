@@ -25,6 +25,9 @@ apply_preset:
             - CoralLps
             - CoralSps
             - MarineFot
+            - DeepBlue
+            - Max
+            - AlgaeMax
             - Moonlight
 
 set_spectrum:
@@ -104,3 +107,11 @@ set_schedule:
 sync_rtc:
   name: Sync Real-Time Clock (RTC)
   description: Synchronize PC/HA server clock to WeekAqua light hardware RTC.
+
+connect:
+  name: Connect BLE
+  description: Explicitly establish BLE connection to WeekAqua device.
+
+disconnect:
+  name: Disconnect BLE
+  description: Explicitly release BLE connection to allow other devices/apps to connect.

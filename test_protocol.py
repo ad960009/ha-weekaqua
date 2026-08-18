@@ -33,16 +33,24 @@ class TestWeekAquaProtocol(unittest.TestCase):
 
     def test_live_spectrum_packet_normalization(self):
         # 100% on all channels exceeds 100% total power -> must be clamped/normalized
-        packet = WeekAquaProtocol.build_live_spectrum_packet(100, 100, 100, 100, 0, 0, model_code="5746")
+        packet = WeekAquaProtocol.build_live_spectrum_packet(100, 100, 100, 100, 100, 100, model_code="5749")
         self.assertEqual(packet[0], 0xFB)
         self.assertEqual(packet[1], 0xF9)
-        # Verify normalized values are <= 235 and power is <= 100%
+        # Verify normalized values are <= 235 and power is strictly <= 100.0%
         r = WeekAquaProtocol.byte_to_percent(packet[2])
         g = WeekAquaProtocol.byte_to_percent(packet[3])
         b = WeekAquaProtocol.byte_to_percent(packet[4])
         w = WeekAquaProtocol.byte_to_percent(packet[5])
-        total_pwr = WeekAquaProtocol.calculate_total_power_percent(r, g, b, w, model_code="5746")
-        self.assertLessEqual(total_pwr, 100.5)
+        norm = WeekAquaProtocol.normalize_spectrum_to_max_power(100, 100, 100, 100, 100, 100, model_code="5749")
+        total_pwr = WeekAquaProtocol.calculate_total_power_percent(norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet, model_code="5749")
+        self.assertLessEqual(total_pwr, 100.0)
+
+    def test_rounding_edge_case_not_exceeding_100(self):
+        # Test various peak configurations across models
+        for model in ["", "5746", "5748", "5749", "5751", "5752"]:
+            norm = WeekAquaProtocol.normalize_spectrum_to_max_power(100, 100, 100, 100, 100, 100, model_code=model)
+            total = WeekAquaProtocol.calculate_total_power_percent(norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet, model_code=model)
+            self.assertLessEqual(total, 100.0, f"Model {model} exceeded 100.0% with {total}%")
 
     def test_state_init_packet(self):
         packet = WeekAquaProtocol.build_state_init_packet()

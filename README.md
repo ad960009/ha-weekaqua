@@ -12,16 +12,24 @@ Home Assistant(HA) 환경에서 **WeekAqua 수조 조명**을 제어할 수 있�
    - 5개, 8개, 12개 슬롯 제한 없이 사용자가 원하는 만큼(10개, 20개, 50개 등) 시간-스펙트럼 포인트를 추가/삭제 가능
    - Home Assistant가 매 분마다 현재 시각의 스펙트럼을 **부드러운 선형 보간(Linear Interpolation)**으로 계산하여 실시간 패킷(`FBF9...`) 송신
    - MCU 펌웨어의 `FEF9` 커맨드 충돌 위험이 전혀 없는 100% 안전한 제어 방식
-2. **ESPHome Bluetooth Proxy 완벽 지원**:
+2. **스마트 60초 무활동 자동 연결 해제 (Inactivity Auto-Disconnect)**:
+   - 패킷 전송 후 60초 동안 추가 조작이 없으면 BLE 세션을 자동으로 안전하게 해제
+   - 스마트폰 공식 WeekAqua 앱을 켤 때 1:1 블루투스 점유 충돌 없이 언제든지 자유롭게 사용 가능
+3. **무지연 실시간 RTC 동기화 (Zero-Latency Dynamic RTC Sync)**:
+   - 매일 자정(00:00) 조명 내부 RTC 시계를 HA 초정밀 시각으로 자동 재동기화
+   - 무선 연결 지연 시간(1~3초)을 상쇄하기 위해 실제 전송 직전 1밀리초 시점의 `datetime.now()`로 동적 인코딩하여 오차 0초 보정
+4. **ESPHome Bluetooth Proxy 완벽 지원**:
    - HA 서버와 어항의 거리가 멀어도 방마다 설치된 ESP32 Bluetooth Proxy를 통해 원격으로 블루투스 패킷 송수신
-3. **100% 전력 안전 상한선 (Max Power Limit Guard)**:
-   - 공식 안드로이드 APK 전력 공식 기반 채널 비율 보존 자동 정규화(Normalize) 내장
-4. **WPF 룩앤필의 Lovelace 커스텀 카드 (`weekaqua-card.js`)**:
+5. **100% 전력 안전 2중 가드 (Max Power Limit Dual-Layer Guard)**:
+   - 안드로이드 공식 APK 전력 공식 기반 채널 비율 보존 자동 정규화(Normalize) 내장
+   - $99.8\%$ 안전 스케일 팩터 및 Safety While Loop로 부동소수점 반올림 누적 오차($100.1\%$)를 원천 차단
+6. **WPF 룩앤필의 Lovelace 커스텀 카드 (`weekaqua-card.js`)**:
    - 다크 테마, 채널별 컬러 슬라이더(R, G, B, W, UV, Violet, Fan)
    - 실시간 총 전력 부하(%) 게이지 프로그레스 바
    - **24시간 인터랙티브 SVG 타임라인 그래프** 시각화
-   - 원클릭 프리셋 버튼 (수초, 어항, 산호, 심야 달빛 등)
-5. **스마트 플러그 전력 모니터링**:
+   - 원클릭 프리셋 버튼 (수초, 어항, 산호, 💡 Max 100%, 심야 달빛 등)
+   - 수동 `⚡ Connect` / `❌ Disconnect` 버튼 및 실시간 연결 상태 배지
+7. **스마트 플러그 전력 모니터링**:
    - GATT Notify 특성을 통한 누적 소비전력량(kWh) 실시간 디코딩 및 HA 에너지 대시보드 연동
 
 ---
@@ -40,12 +48,14 @@ ha-weekaqua/
 │       ├── config_flow.py             # BLE 기기 자동 검색(Discovery) 플로우
 │       ├── light.py                   # Master Light Entity
 │       ├── number.py                  # 채널별 백분율 슬라이더 (R/G/B/W/UV/V/Fan)
+│       ├── button.py                  # 수동 Connect / Disconnect 버튼
 │       ├── sensor.py                  # 전력량(kWh), 소비전력 부하(%) 센서
 │       ├── switch.py                  # 무제한 스케줄러 On/Off 토글
 │       ├── services.yaml              # 커스텀 서비스 명세
 │       └── translations/              # 다국어 지원 (ko, en)
 ├── dist/
 │   └── weekaqua-card.js               # WPF 스타일 Lovelace 커스텀 카드
+├── preview.html                       # HA 설치 없이 브라우저에서 즉시 체험하는 데모
 ├── hacs.json                          # HACS 지원 메타데이터
 ├── test_protocol.py                   # 단위 검증 테스트 스크립트
 └── README.md
@@ -55,7 +65,15 @@ ha-weekaqua/
 
 ## 🚀 설치 방법 (Installation)
 
-### 방법 1. 수동 설치 (Manual Installation)
+### 방법 1. HACS 사용자 지정 저장소 등록 (권장)
+
+1. HACS > Integrations > 우측 상단 메뉴 `...` > **Custom repositories (사용자 지정 저장소)** 클릭
+2. **Repository URL**: `https://github.com/ad960009/ha-weekaqua`
+3. **Category**: `Integration` 선택 후 **[Add]** 클릭
+4. 목록에 추가된 **WeekAqua Aquarium Light**를 다운로드 후 HA 재시작
+5. **설정 > 기기 및 서비스 > 통합구성요소 추가**에서 **"WeekAqua"** 검색 후 추가
+
+### 방법 2. 수동 설치 (Manual Installation)
 
 1. `custom_components/weekaqua` 폴더를 Home Assistant 설정 디렉토리(`config/custom_components/weekaqua/`)에 복사합니다.
 2. `dist/weekaqua-card.js` 파일을 `config/www/weekaqua-card.js`로 복사합니다.
@@ -63,11 +81,11 @@ ha-weekaqua/
 4. **설정 > 대시보드 > 리소스**에서 `/local/weekaqua-card.js`를 JavaScript 모듈로 추가합니다.
 5. **설정 > 기기 및 서비스 > 통합구성요소 추가**에서 **"WeekAqua"**를 검색하여 추가합니다.
 
-### 방법 2. HACS 사용자 지정 저장소 등록 (Custom Repository)
+---
 
-1. HACS > Integrations > 우측 상단 메뉴 > **Custom repositories** 클릭
-2. Repository URL 입력 및 Category를 **Integration**으로 선택 후 추가
-3. WeekAqua 다운로드 후 HA 재시작
+## 🌐 설치 없이 브라우저에서 UI 확인 (Preview)
+
+`ha-weekaqua/preview.html` 파일을 크롬/엣지 등 웹 브라우저로 열면 Home Assistant 없이도 슬라이더 조작, 프리셋 변경, 24시간 스케줄 타임라인 차트를 즉시 인터랙티브하게 체험하실 수 있습니다.
 
 ---
 
@@ -89,7 +107,7 @@ entity: light.aquarium_light
 ```yaml
 service: weekaqua.apply_preset
 data:
-  preset: RedGrass  # GreenGrass, RedGrass, FishMixed, CoralAb, Moonlight 등
+  preset: Max  # GreenGrass, RedGrass, FishMixed, CoralAb, Max, Moonlight 등
 ```
 
 ### 2. 수동 스펙트럼 전송
@@ -144,4 +162,9 @@ data:
       w: 0
       uv: 0
       v: 0
+```
+
+### 4. 수동 BLE 연결 해제 (스마트폰 공식 앱 사용 시)
+```yaml
+service: weekaqua.disconnect
 ```

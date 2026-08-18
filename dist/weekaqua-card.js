@@ -63,7 +63,7 @@ class WeekAquaCard extends HTMLElement {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 14px;
+          margin-bottom: 10px;
         }
         .title {
           font-size: 16px;
@@ -72,6 +72,51 @@ class WeekAquaCard extends HTMLElement {
           display: flex;
           align-items: center;
           gap: 6px;
+        }
+        .conn-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #27272A;
+          border-radius: 8px;
+          padding: 6px 10px;
+          margin-bottom: 12px;
+          font-size: 11px;
+        }
+        .conn-badge {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-weight: 600;
+        }
+        .conn-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #71717A;
+        }
+        .conn-dot.online {
+          background: #10B981;
+          box-shadow: 0 0 6px #10B981;
+        }
+        .btn-conn {
+          background: #3F3F46;
+          color: #E4E4E7;
+          border: 1px solid #52525B;
+          border-radius: 4px;
+          padding: 3px 8px;
+          font-size: 10px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-conn:hover {
+          background: #52525B;
+        }
+        .btn-conn.disconnect {
+          background: #991B1B;
+          border-color: #DC2626;
+          color: #FFF;
         }
         .tabs {
           display: flex;
@@ -265,6 +310,17 @@ class WeekAquaCard extends HTMLElement {
           </div>
         </div>
 
+        <div class="conn-bar">
+          <div class="conn-badge">
+            <div class="conn-dot online" id="conn-dot"></div>
+            <span id="conn-status-txt">Auto-Connect (Active)</span>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button class="btn-conn" id="btn-manual-conn">⚡ Connect</button>
+            <button class="btn-conn disconnect" id="btn-manual-disconn">❌ Disconnect</button>
+          </div>
+        </div>
+
         <!-- Tab 1: Live Manual Controls -->
         <div id="panel-live">
           <div class="slider-group">
@@ -314,7 +370,10 @@ class WeekAquaCard extends HTMLElement {
             <button class="preset-btn" data-p="RedGrass">🍁 Red Plant</button>
             <button class="preset-btn" data-p="FishMixed">🐠 Mixed</button>
             <button class="preset-btn" data-p="Shrimp">🦐 Shrimp</button>
+            <button class="preset-btn" data-p="Fish">🐟 Fish</button>
             <button class="preset-btn" data-p="CoralAb">🪸 Coral AB+</button>
+            <button class="preset-btn" data-p="DeepBlue">🌊 Deep Blue</button>
+            <button class="preset-btn" data-p="Max" style="color: #FBBF24; font-weight: 700;">💡 Max (100%)</button>
             <button class="preset-btn" data-p="Moonlight">🌙 Moonlight</button>
           </div>
         </div>
@@ -375,6 +434,25 @@ class WeekAquaCard extends HTMLElement {
       this._renderCurve();
     });
 
+    // Manual Connect / Disconnect buttons
+    root.getElementById('btn-manual-conn').addEventListener('click', () => {
+      if (this._hass) {
+        this._hass.callService('weekaqua', 'connect', {
+          device_id: this._config.device_id || '',
+        });
+      }
+      this._setConnectionStatus(true);
+    });
+
+    root.getElementById('btn-manual-disconn').addEventListener('click', () => {
+      if (this._hass) {
+        this._hass.callService('weekaqua', 'disconnect', {
+          device_id: this._config.device_id || '',
+        });
+      }
+      this._setConnectionStatus(false);
+    });
+
     // Sliders
     ['r', 'g', 'b', 'w', 'uv', 'v'].forEach((ch) => {
       const sl = root.getElementById(`sl-${ch}`);
@@ -383,7 +461,10 @@ class WeekAquaCard extends HTMLElement {
         txt.textContent = `${sl.value}%`;
         this._updateGauge();
       });
-      sl.addEventListener('change', () => this._sendLiveSpectrum());
+      sl.addEventListener('change', () => {
+        this._sendLiveSpectrum();
+        this._setConnectionStatus(true);
+      });
     });
 
     // Presets
@@ -391,6 +472,7 @@ class WeekAquaCard extends HTMLElement {
       btn.addEventListener('click', () => {
         const pName = btn.dataset.p;
         this._applyPreset(pName);
+        this._setConnectionStatus(true);
       });
     });
 
@@ -535,8 +617,30 @@ class WeekAquaCard extends HTMLElement {
     }
   }
 
+  _setConnectionStatus(isConnected) {
+    const root = this.shadowRoot;
+    const dot = root.getElementById('conn-dot');
+    const txt = root.getElementById('conn-status-txt');
+    if (dot && txt) {
+      if (isConnected) {
+        dot.className = 'conn-dot online';
+        txt.textContent = 'Connected (Auto-off in 60s)';
+      } else {
+        dot.className = 'conn-dot';
+        txt.textContent = 'Disconnected (Standby)';
+      }
+    }
+  }
+
   _updateState() {
     // Sync entity attributes if available
+    if (this._hass && this._config.entity) {
+      const stateObj = this._hass.states[this._config.entity];
+      if (stateObj && stateObj.attributes) {
+        const isOnline = stateObj.state === 'on' || stateObj.attributes.connected;
+        this._setConnectionStatus(isOnline);
+      }
+    }
   }
 }
 

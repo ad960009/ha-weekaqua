@@ -91,10 +91,16 @@
         }
       },
       callService: function(domain, service, data) {
-        addLog(`Service Call -> ${domain}.${service}(${JSON.stringify(data)})`);
-        if (service === 'apply_preset') {
+        addLog(`Service Call -> ${domain}.${service}(${JSON.stringify(data || {})})`);
+        const card = document.getElementById('my-card');
+        if (service === 'connect') {
+          card._setConnectionStatus(true);
+          addLog("BLE Connected explicitly. Inactivity auto-off in 60s.");
+        } else if (service === 'disconnect') {
+          card._setConnectionStatus(false);
+          addLog("BLE Disconnected explicitly. Session released.");
+        } else if (service === 'apply_preset') {
           const p = data.preset;
-          const card = document.getElementById('my-card');
           const root = card.shadowRoot;
           // Apply preset to demo sliders
           const presets = {
@@ -102,7 +108,10 @@
             RedGrass: { r: 100, g: 30, b: 40, w: 80, uv: 70, v: 60 },
             FishMixed: { r: 70, g: 80, b: 90, w: 90, uv: 50, v: 40 },
             Shrimp: { r: 40, g: 60, b: 100, w: 70, uv: 30, v: 20 },
+            Fish: { r: 60, g: 50, b: 100, w: 60, uv: 40, v: 30 },
             CoralAb: { r: 20, g: 40, b: 100, w: 20, uv: 100, v: 90 },
+            DeepBlue: { r: 0, g: 10, b: 100, w: 20, uv: 80, v: 95 },
+            Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
             Moonlight: { r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 }
           };
           if (presets[p]) {

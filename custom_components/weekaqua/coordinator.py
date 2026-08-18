@@ -75,6 +75,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._lock = asyncio.Lock()
         self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._queue_task: asyncio.Task | None = None
+        self._auto_disconnect_task: asyncio.Task | None = None
+        self._auto_disconnect_delay: float = 60.0  # Disconnect after 60s of inactivity
         self._schedule_unsub: Any = None
         self._last_sent_spectrum: bytes | None = None
         self._last_rtc_sync_date: date | None = None
@@ -106,6 +108,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_unload(self) -> None:
         """Stop tasks and disconnect BLE client."""
+        if self._auto_disconnect_task:
+            self._auto_disconnect_task.cancel()
         if self._queue_task:
             self._queue_task.cancel()
         await self.async_disconnect()
@@ -127,6 +131,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._client.connect()
             self.is_connected = True
             _LOGGER.info("Connected to WeekAqua BLE (%s) successfully", self.mac)
+            self.async_set_updated_data(self._build_data())
 
             # Subscribe to GATT Notify for Smart Plug Power Meter
             try:
@@ -148,6 +153,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Callback when BLE device disconnects."""
         self.is_connected = False
         self._client = None
+        if self._auto_disconnect_task:
+            self._auto_disconnect_task.cancel()
         _LOGGER.info("WeekAqua (%s) disconnected", self.mac)
         self.async_set_updated_data(self._build_data())
 
@@ -158,8 +165,18 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.power_kwh = kwh
             self.async_set_updated_data(self._build_data())
 
+    async def async_connect(self) -> bool:
+        """Manually trigger connection to WeekAqua BLE device."""
+        async with self._lock:
+            connected = await self._ensure_connected()
+            if connected:
+                self._reset_inactivity_timer()
+            return connected
+
     async def async_disconnect(self) -> None:
-        """Explicitly disconnect BLE client."""
+        """Explicitly disconnect BLE client to release device for other apps."""
+        if self._auto_disconnect_task:
+            self._auto_disconnect_task.cancel()
         async with self._lock:
             if self._client and self._client.is_connected:
                 try:
@@ -168,6 +185,26 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pass
             self.is_connected = False
             self._client = None
+            _LOGGER.info("WeekAqua (%s) manually/automatically disconnected.", self.mac)
+            self.async_set_updated_data(self._build_data())
+
+    def _reset_inactivity_timer(self) -> None:
+        """Reset the 60-second inactivity timer that automatically disconnects BLE."""
+        if self._auto_disconnect_task and not self._auto_disconnect_task.done():
+            self._auto_disconnect_task.cancel()
+        self._auto_disconnect_task = asyncio.create_task(self._auto_disconnect_worker())
+
+    async def _auto_disconnect_worker(self) -> None:
+        """Worker task to automatically disconnect BLE after 60s of inactivity."""
+        try:
+            await asyncio.sleep(self._auto_disconnect_delay)
+            _LOGGER.info(
+                "Inactivity timeout (60s) reached for WeekAqua (%s). Releasing BLE session automatically.",
+                self.mac
+            )
+            await self.async_disconnect()
+        except asyncio.CancelledError:
+            pass
 
     async def enqueue_packet(self, packet: bytes) -> None:
         """Enqueue an 8-byte command packet to be transmitted."""
@@ -181,9 +218,16 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 async with self._lock:
                     connected = await self._ensure_connected()
                     if connected and self._client and self._client.is_connected:
+                        # Zero-Latency RTC Sync: If this is an RTC sync packet (starts with 0xFF),
+                        # dynamically regenerate it with datetime.now() right before transmission
+                        # to eliminate BLE connection handshaking and queue latency.
+                        if len(packet) == 8 and packet[0] == 0xFF:
+                            packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
+
                         await self._client.write_gatt_char(WRITE_CHAR_UUID, packet, response=False)
                         _LOGGER.debug("TX -> %s: %s", self.mac, packet.hex().upper())
                         await asyncio.sleep(0.5)
+                        self._reset_inactivity_timer()
                     else:
                         _LOGGER.debug("Skipped TX (device offline): %s", packet.hex().upper())
             except Exception as ex:
@@ -308,6 +352,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "uv": self.current_uv,
             "v": self.current_v,
             "fan": self.current_fan,
+            "connected": self.is_connected,
             "power_pct": self.total_power_pct,
             "power_kwh": self.power_kwh,
             "schedule_enabled": self.schedule_enabled,

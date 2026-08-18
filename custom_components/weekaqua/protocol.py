@@ -77,7 +77,8 @@ class WeekAquaProtocol:
         else:  # Standard 4-Channel (RGBW / RGB-UV)
             total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (w * 0.08)
 
-        return round(total, 1)
+        rounded = round(total, 1)
+        return 100.0 if 100.0 < rounded <= 100.15 else rounded
 
     @classmethod
     def normalize_spectrum_to_max_power(
@@ -91,8 +92,8 @@ class WeekAquaProtocol:
         model_code: str = ""
     ) -> NormalizedSpectrum:
         """Proportionally scale down all channels if total power exceeds 100%."""
-        total = cls.calculate_total_power_percent(red, green, blue, white, uv, violet, model_code)
-        if total <= 100.0 or total <= 0.0:
+        total_power = cls.calculate_total_power_percent(red, green, blue, white, uv, violet, model_code)
+        if total_power <= 100.0 or total_power <= 0.0:
             return NormalizedSpectrum(
                 r=round(max(0.0, red), 1),
                 g=round(max(0.0, green), 1),
@@ -102,14 +103,37 @@ class WeekAquaProtocol:
                 violet=round(max(0.0, violet), 1),
             )
 
-        factor = 100.0 / total
+        scale_factor = 99.8 / total_power
+        r = round(red * scale_factor, 1)
+        g = round(green * scale_factor, 1)
+        b = round(blue * scale_factor, 1)
+        w = round(white * scale_factor, 1)
+        u = round(uv * scale_factor, 1)
+        v = round(violet * scale_factor, 1)
+
+        safety_count = 0
+        while cls.calculate_total_power_percent(r, g, b, w, u, v, model_code) > 100.0 and safety_count < 10:
+            safety_count += 1
+            if b >= r and b >= g and b >= w and b >= u and b >= v and b > 0:
+                b = round(b - 0.1, 1)
+            elif g >= r and g >= w and g >= u and g >= v and g > 0:
+                g = round(g - 0.1, 1)
+            elif r >= w and r >= u and r >= v and r > 0:
+                r = round(r - 0.1, 1)
+            elif w >= u and w >= v and w > 0:
+                w = round(w - 0.1, 1)
+            elif u >= v and u > 0:
+                u = round(u - 0.1, 1)
+            elif v > 0:
+                v = round(v - 0.1, 1)
+
         return NormalizedSpectrum(
-            r=round(max(0.0, red * factor), 1),
-            g=round(max(0.0, green * factor), 1),
-            b=round(max(0.0, blue * factor), 1),
-            w=round(max(0.0, white * factor), 1),
-            uv=round(max(0.0, uv * factor), 1),
-            violet=round(max(0.0, violet * factor), 1),
+            r=max(0.0, r),
+            g=max(0.0, g),
+            b=max(0.0, b),
+            w=max(0.0, w),
+            uv=max(0.0, u),
+            violet=max(0.0, v),
         )
 
     @classmethod
