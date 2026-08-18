@@ -145,9 +145,20 @@ class WeekAquaProtocol:
         white_pct: float,
         uv_pct: float = 0.0,
         violet_pct: float = 0.0,
-        model_code: str = ""
+        model_code: str = "",
+        is_4ch_rgb_uv: bool = False
     ) -> bytes:
-        """Build 8-byte live manual spectrum packet (0xFB 0xF9 R G B W UV V)."""
+        """Build live manual spectrum packet matching official APK / WPF specification.
+        For 4-Channel RGB/UV models (M800 Pro, M600, S-Series, T90, 5746):
+          Channel 4 is mapped to Byte 5 (UV if uv_pct > 0 else white_pct).
+          Total 8 bytes: [0xFB, 0xF9, R, G, B, CH4, 0x55, 0x55].
+        For 5-Channel (5748):
+          Total 9 bytes: [0xFB, 0xF9, R, G, B, W, UV, 0x55, 0x55].
+        For 6-Channel (5749/5751/5752):
+          Total 10 bytes: [0xFB, 0xF9, R, G, B, W, UV, V, 0x55, 0x55].
+        For standard 4-Channel RGBW (5745):
+          Total 8 bytes: [0xFB, 0xF9, R, G, B, W, 0x55, 0x55].
+        """
         norm = cls.normalize_spectrum_to_max_power(red_pct, green_pct, blue_pct, white_pct, uv_pct, violet_pct, model_code)
         r = cls.percent_to_byte(norm.r)
         g = cls.percent_to_byte(norm.g)
@@ -155,10 +166,19 @@ class WeekAquaProtocol:
         w = cls.percent_to_byte(norm.w)
         uv = cls.percent_to_byte(norm.uv)
         v = cls.percent_to_byte(norm.violet)
-        # Pad with 0x55 if 4-ch
-        b6 = uv if uv > 0 or model_code in ("5748", "5749", "5751", "5752") else 0x55
-        b7 = v if v > 0 or model_code in ("5749", "5751", "5752") else 0x55
-        return bytes([0xFB, 0xF9, r, g, b, w, b6, b7])
+
+        # 4-Channel RGB/UV (e.g. M800 Pro, M-Series, S-Series, T90, Model 5746)
+        if is_4ch_rgb_uv or model_code == "5746":
+            ch4 = uv if uv > 0 else w
+            return bytes([0xFB, 0xF9, r, g, b, ch4, 0x55, 0x55])
+
+        if v > 0 or model_code in ("5749", "5750", "5751", "5752"):
+            return bytes([0xFB, 0xF9, r, g, b, w, uv, v, 0x55, 0x55])
+
+        if uv > 0 or model_code == "5748":
+            return bytes([0xFB, 0xF9, r, g, b, w, uv, 0x55, 0x55])
+
+        return bytes([0xFB, 0xF9, r, g, b, w, 0x55, 0x55])
 
     @classmethod
     def build_fan_speed_packet(cls, fan_pct: float) -> bytes:
@@ -227,7 +247,8 @@ class WeekAquaProtocol:
         white_pct: float,
         uv_pct: float = 0.0,
         violet_pct: float = 0.0,
-        model_code: str = ""
+        model_code: str = "",
+        is_4ch_rgb_uv: bool = False
     ) -> bytes:
         """Build 8~10 byte Ramp schedule slot spectrum packet (0xFB 0xF[slot] R G B W UV V 0x55 0x55)."""
         if not 1 <= slot_id <= 12:
@@ -240,9 +261,18 @@ class WeekAquaProtocol:
         w = cls.percent_to_byte(norm.w)
         uv = cls.percent_to_byte(norm.uv)
         v = cls.percent_to_byte(norm.violet)
-        b6 = uv if uv > 0 or model_code in ("5748", "5749", "5751", "5752") else 0x55
-        b7 = v if v > 0 or model_code in ("5749", "5751", "5752") else 0x55
-        return bytes([0xFB, second_header, r, g, b, w, b6, b7])
+
+        if is_4ch_rgb_uv or model_code == "5746":
+            ch4 = uv if uv > 0 else w
+            return bytes([0xFB, second_header, r, g, b, ch4, 0x55, 0x55])
+
+        if v > 0 or model_code in ("5749", "5750", "5751", "5752"):
+            return bytes([0xFB, second_header, r, g, b, w, uv, v, 0x55, 0x55])
+
+        if uv > 0 or model_code == "5748":
+            return bytes([0xFB, second_header, r, g, b, w, uv, 0x55, 0x55])
+
+        return bytes([0xFB, second_header, r, g, b, w, 0x55, 0x55])
 
     @classmethod
     def build_sunrise_sunset_packet(

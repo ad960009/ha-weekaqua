@@ -125,6 +125,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # --- BLE Connection & Write Queue ---
 
+    def _is_4ch_rgb_uv(self) -> bool:
+        """Detect if device is a 4-channel RGB/UV light (M800 Pro, M600, S-Series, T90, etc.)."""
+        if self.model_code == "5746":
+            return True
+        if self.model_code in ("5748", "5749", "5750", "5751", "5752"):
+            return False
+        name = (self.device_name or "").upper()
+        if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
+            return False
+        return any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M")
+
     async def _ensure_connected(self) -> bool:
         """Ensure Bleak connection using Home Assistant Bluetooth backend / BLE Proxy."""
         if self._client and self._client.is_connected:
@@ -132,10 +143,19 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
         if not ble_device:
-            _LOGGER.debug("BLE device %s not found in HA Bluetooth scanner cache", self.mac)
+            # Fallback to non-connectable scanner cache
+            ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=False)
+
+        if not ble_device:
+            _LOGGER.warning(
+                "WeekAqua (%s) was not found in Home Assistant Bluetooth scanner cache. "
+                "Please verify the light is powered on, within Bluetooth range, and not connected to phone app.",
+                self.mac
+            )
             return False
 
         try:
+            _LOGGER.info("Connecting to WeekAqua BLE %s (%s)...", self.device_name, self.mac)
             self._client = await establish_connection(
                 BleakClientWithServiceCache,
                 ble_device,
@@ -145,7 +165,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 use_services_cache=True,
             )
             self.is_connected = True
-            _LOGGER.info("Connected to WeekAqua BLE (%s) successfully", self.mac)
+            _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
             self.async_set_updated_data(self._build_data())
 
             # Subscribe to GATT Notify for Smart Plug Power Meter
@@ -240,13 +260,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
 
                         await self._client.write_gatt_char(WRITE_CHAR_UUID, packet, response=False)
-                        _LOGGER.debug("TX -> %s: %s", self.mac, packet.hex().upper())
+                        _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, packet.hex().upper())
                         await asyncio.sleep(0.5)
                         self._reset_inactivity_timer()
                     else:
-                        _LOGGER.debug("Skipped TX (device offline): %s", packet.hex().upper())
+                        _LOGGER.warning("BLE TX skipped for %s (%s) - device offline. Packet: %s", self.device_name, self.mac, packet.hex().upper())
             except Exception as ex:
-                _LOGGER.error("BLE TX error on %s: %s", self.mac, ex)
+                _LOGGER.error("BLE TX error on %s (%s): %s", self.device_name, self.mac, ex)
             finally:
                 self._write_queue.task_done()
 
@@ -341,7 +361,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
-                self.current_uv, self.current_v, self.model_code
+                self.current_uv, self.current_v, self.model_code,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
 
             # Send only if spectrum changed significantly or on reconnection
@@ -400,7 +421,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         packet = WeekAquaProtocol.build_live_spectrum_packet(
             self.current_r, self.current_g, self.current_b, self.current_w,
-            self.current_uv, self.current_v, self.model_code
+            self.current_uv, self.current_v, self.model_code,
+            is_4ch_rgb_uv=self._is_4ch_rgb_uv()
         )
         self._last_sent_spectrum = packet
         await self.enqueue_packet(packet)
@@ -453,14 +475,18 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Slot 1: Day 1 (start_h:start_m -> 24:00)
             int1 = intervals[0]
             t_pkt1 = WeekAquaProtocol.build_ramp_time_packet(1, int1[0], int1[1], int1[2], int1[3], enabled=True)
-            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(1, r, g, b, w, uv, violet, self.model_code)
+            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(
+                1, r, g, b, w, uv, violet, self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
             await self.enqueue_packet(t_pkt1)
             await self.enqueue_packet(s_pkt1)
 
             # Slot 2: Day 2 (00:00 -> end_h:end_m)
             int2 = intervals[1]
             t_pkt2 = WeekAquaProtocol.build_ramp_time_packet(2, int2[0], int2[1], int2[2], int2[3], enabled=True)
-            s_pkt2 = WeekAquaProtocol.build_ramp_spectrum_packet(2, r, g, b, w, uv, violet, self.model_code)
+            s_pkt2 = WeekAquaProtocol.build_ramp_spectrum_packet(
+                2, r, g, b, w, uv, violet, self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
             await self.enqueue_packet(t_pkt2)
             await self.enqueue_packet(s_pkt2)
 
@@ -474,7 +500,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Single same-day schedule
             int1 = intervals[0]
             t_pkt1 = WeekAquaProtocol.build_ramp_time_packet(1, int1[0], int1[1], int1[2], int1[3], enabled=True)
-            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(1, r, g, b, w, uv, violet, self.model_code)
+            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(
+                1, r, g, b, w, uv, violet, self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
             await self.enqueue_packet(t_pkt1)
             await self.enqueue_packet(s_pkt1)
 
