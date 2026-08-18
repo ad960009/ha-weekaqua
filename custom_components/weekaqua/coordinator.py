@@ -20,8 +20,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     DOMAIN,
     SERVICE_UUID,
+    SERVICE_UUIDS,
     WRITE_CHAR_UUID,
+    WRITE_CHAR_UUIDS,
     NOTIFY_CHAR_UUID,
+    NOTIFY_CHAR_UUIDS,
     CONF_MAC,
     CONF_NAME,
     CONF_MODEL_CODE,
@@ -81,6 +84,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Bleak Client & Lock
         self._client: BleakClientWithServiceCache | BleakClient | None = None
+        self._write_char_uuid: str | None = None
+        self._notify_char_uuid: str | None = None
         self._lock = asyncio.Lock()
         self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._queue_task: asyncio.Task | None = None
@@ -138,7 +143,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _ensure_connected(self) -> bool:
         """Ensure Bleak connection using Home Assistant Bluetooth backend / BLE Proxy."""
-        if self._client and self._client.is_connected:
+        if self._client and self._client.is_connected and self._write_char_uuid:
             return True
 
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
@@ -166,13 +171,49 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self.is_connected = True
             _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
+
+            # Discover and resolve Write and Notify characteristics
+            self._write_char_uuid = None
+            self._notify_char_uuid = None
+
+            # 1. Search known UUID lists in discovered services
+            for s in self._client.services:
+                for c in s.characteristics:
+                    c_uuid_lower = c.uuid.lower()
+                    for target_write in WRITE_CHAR_UUIDS:
+                        if target_write.lower() == c_uuid_lower:
+                            self._write_char_uuid = c.uuid
+                            break
+                    for target_notify in NOTIFY_CHAR_UUIDS:
+                        if target_notify.lower() == c_uuid_lower:
+                            self._notify_char_uuid = c.uuid
+                            break
+
+            # 2. Fallback to any characteristic with write property if not in known lists
+            if not self._write_char_uuid:
+                for s in self._client.services:
+                    for c in s.characteristics:
+                        if "write-without-response" in c.properties or "write" in c.properties:
+                            self._write_char_uuid = c.uuid
+                            _LOGGER.info("Resolved write characteristic by GATT property: %s (Service: %s)", c.uuid, s.uuid)
+                            break
+                    if self._write_char_uuid:
+                        break
+
+            if not self._write_char_uuid:
+                _LOGGER.error("No writable GATT characteristic found on %s (%s)", self.device_name, self.mac)
+                return False
+
+            _LOGGER.info("Resolved GATT characteristics for %s: Write=%s, Notify=%s", self.mac, self._write_char_uuid, self._notify_char_uuid)
             self.async_set_updated_data(self._build_data())
 
             # Subscribe to GATT Notify for Smart Plug Power Meter
-            try:
-                await self._client.start_notify(NOTIFY_CHAR_UUID, self._on_notify)
-            except Exception as notify_err:
-                _LOGGER.debug("Notify subscription on %s skipped: %s", self.mac, notify_err)
+            if self._notify_char_uuid:
+                try:
+                    await self._client.start_notify(self._notify_char_uuid, self._on_notify)
+                    _LOGGER.info("Subscribed to GATT Notify: %s on %s", self._notify_char_uuid, self.mac)
+                except Exception as notify_err:
+                    _LOGGER.debug("Notify subscription on %s skipped: %s", self.mac, notify_err)
 
             # Sync RTC time and query initial state
             await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
@@ -182,12 +223,16 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Failed to connect to WeekAqua (%s): %s", self.mac, err)
             self.is_connected = False
             self._client = None
+            self._write_char_uuid = None
+            self._notify_char_uuid = None
             return False
 
     def _on_disconnected(self, client: Any) -> None:
         """Callback when BLE device disconnects."""
         self.is_connected = False
         self._client = None
+        self._write_char_uuid = None
+        self._notify_char_uuid = None
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
         _LOGGER.info("WeekAqua (%s) disconnected", self.mac)
@@ -220,6 +265,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pass
             self.is_connected = False
             self._client = None
+            self._write_char_uuid = None
+            self._notify_char_uuid = None
             _LOGGER.info("WeekAqua (%s) manually/automatically disconnected.", self.mac)
             self.async_set_updated_data(self._build_data())
 
@@ -252,19 +299,19 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 async with self._lock:
                     connected = await self._ensure_connected()
-                    if connected and self._client and self._client.is_connected:
+                    if connected and self._client and self._client.is_connected and self._write_char_uuid:
                         # Zero-Latency RTC Sync: If this is an RTC sync packet (starts with 0xFF),
                         # dynamically regenerate it with datetime.now() right before transmission
                         # to eliminate BLE connection handshaking and queue latency.
                         if len(packet) == 8 and packet[0] == 0xFF:
                             packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
 
-                        await self._client.write_gatt_char(WRITE_CHAR_UUID, packet, response=False)
+                        await self._client.write_gatt_char(self._write_char_uuid, packet, response=False)
                         _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, packet.hex().upper())
                         await asyncio.sleep(0.5)
                         self._reset_inactivity_timer()
                     else:
-                        _LOGGER.warning("BLE TX skipped for %s (%s) - device offline. Packet: %s", self.device_name, self.mac, packet.hex().upper())
+                        _LOGGER.warning("BLE TX skipped for %s (%s) - device offline or no write char. Packet: %s", self.device_name, self.mac, packet.hex().upper())
             except Exception as ex:
                 _LOGGER.error("BLE TX error on %s (%s): %s", self.device_name, self.mac, ex)
             finally:
