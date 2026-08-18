@@ -8,7 +8,8 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ad960009/ha-weekaqua/issues",
   "requirements": [
-    "bleak>=0.21.0"
+    "bleak>=0.21.0",
+    "bleak-retry-connector>=3.0.0"
   ],
   "dependencies": [
     "bluetooth"

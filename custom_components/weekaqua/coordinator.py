@@ -8,6 +8,10 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.exc import BleakError
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    establish_connection,
+)
 
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant, callback
@@ -76,7 +80,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.total_power_pct: float = 0.0
 
         # Bleak Client & Lock
-        self._client: BleakClient | None = None
+        self._client: BleakClientWithServiceCache | BleakClient | None = None
         self._lock = asyncio.Lock()
         self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._queue_task: asyncio.Task | None = None
@@ -132,8 +136,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
 
         try:
-            self._client = BleakClient(ble_device, disconnected_callback=self._on_disconnected)
-            await self._client.connect()
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                self.device_name,
+                self._on_disconnected,
+                max_attempts=3,
+                use_services_cache=True,
+            )
             self.is_connected = True
             _LOGGER.info("Connected to WeekAqua BLE (%s) successfully", self.mac)
             self.async_set_updated_data(self._build_data())
@@ -148,13 +158,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
             await self.enqueue_packet(WeekAquaProtocol.build_state_init_packet())
             return True
-        except (BleakError, asyncio.TimeoutError) as err:
+        except (BleakError, asyncio.TimeoutError, Exception) as err:
             _LOGGER.warning("Failed to connect to WeekAqua (%s): %s", self.mac, err)
             self.is_connected = False
             self._client = None
             return False
 
-    def _on_disconnected(self, client: BleakClient) -> None:
+    def _on_disconnected(self, client: Any) -> None:
         """Callback when BLE device disconnects."""
         self.is_connected = False
         self._client = None
