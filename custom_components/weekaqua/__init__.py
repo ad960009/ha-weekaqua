@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, PRESETS
 from .coordinator import WeekAquaCoordinator
 from .protocol import WeekAquaProtocol
+from .frontend import async_setup_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +87,9 @@ SCHEMA_SET_TIMER = vol.Schema({
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up WeekAqua from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    # Automatically serve and register Lovelace dashboard card & copy to www
+    await async_setup_frontend(hass)
 
     coordinator = WeekAquaCoordinator(hass, entry.data)
     await coordinator.async_setup()

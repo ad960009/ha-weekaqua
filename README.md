@@ -76,10 +76,9 @@ ha-weekaqua/
 ### 방법 2. 수동 설치 (Manual Installation)
 
 1. `custom_components/weekaqua` 폴더를 Home Assistant 설정 디렉토리(`config/custom_components/weekaqua/`)에 복사합니다.
-2. `dist/weekaqua-card.js` 파일을 `config/www/weekaqua-card.js`로 복사합니다.
-3. Home Assistant를 재시작합니다.
-4. **설정 > 대시보드 > 리소스**에서 `/local/weekaqua-card.js`를 JavaScript 모듈로 추가합니다.
-5. **설정 > 기기 및 서비스 > 통합구성요소 추가**에서 **"WeekAqua"**를 검색하여 추가합니다.
+2. Home Assistant를 재시작합니다.
+3. **설정 > 기기 및 서비스 > 통합구성요소 추가**에서 **"WeekAqua"**를 검색하여 추가합니다.
+4. *(통합구성요소가 `weekaqua-card.js` 대시보드 리소스를 자동으로 로드하므로 별도의 수동 리소스 등록이 필요 없습니다!)*
 
 ---
 
@@ -89,9 +88,9 @@ ha-weekaqua/
 
 ---
 
-## 🎨 Lovelace 대시보드 카드 사용법
+## 🎨 Lovelace 대시보드 카드 사용법 (자동 등록 지원 ✨)
 
-대시보드 수정 모드에서 수동 카드를 추가하고 아래 YAML을 입력합니다:
+통합구성요소 활성화 시 대시보드 리소스가 자동으로 등록되므로, 대시보드 수정 모드에서 **수동 카드**를 추가하고 아래 YAML만 입력하시면 즉시 카드가 표시됩니다:
 
 ```yaml
 type: custom:weekaqua-card
