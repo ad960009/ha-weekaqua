@@ -187,6 +187,115 @@ class WeekAquaProtocol:
         sub = 0xF1 if mode_id == 1 else (0xF2 if mode_id == 2 else 0xF3)
         return bytes([0xFD, sub, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55])
 
+    @classmethod
+    def build_ramp_time_packet(
+        cls,
+        slot_id: int,
+        start_h: int,
+        start_m: int,
+        end_h: int,
+        end_m: int,
+        enabled: bool = True
+    ) -> bytes:
+        """Build 8-byte Ramp schedule slot time packet (0xFE 0xF[slot] BCD(StartH) BCD(StartM) BCD(EndH) BCD(EndM) 0x55 0x55).
+        Slot ID: 1 to 12.
+        Supports 24:00 (end_h=24 -> BCD 0x24) for gapless midnight transition.
+        """
+        if not 1 <= slot_id <= 12:
+            raise ValueError(f"Slot ID must be between 1 and 12, got {slot_id}")
+        second_header = 0xF0 | (slot_id & 0x0F)
+        if not enabled:
+            return bytes([0xFE, second_header, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55])
+        return bytes([
+            0xFE,
+            second_header,
+            cls.decimal_to_bcd(start_h),
+            cls.decimal_to_bcd(start_m),
+            cls.decimal_to_bcd(end_h),
+            cls.decimal_to_bcd(end_m),
+            0x55,
+            0x55
+        ])
+
+    @classmethod
+    def build_ramp_spectrum_packet(
+        cls,
+        slot_id: int,
+        red_pct: float,
+        green_pct: float,
+        blue_pct: float,
+        white_pct: float,
+        uv_pct: float = 0.0,
+        violet_pct: float = 0.0,
+        model_code: str = ""
+    ) -> bytes:
+        """Build 8~10 byte Ramp schedule slot spectrum packet (0xFB 0xF[slot] R G B W UV V 0x55 0x55)."""
+        if not 1 <= slot_id <= 12:
+            raise ValueError(f"Slot ID must be between 1 and 12, got {slot_id}")
+        second_header = 0xF0 | (slot_id & 0x0F)
+        norm = cls.normalize_spectrum_to_max_power(red_pct, green_pct, blue_pct, white_pct, uv_pct, violet_pct, model_code)
+        r = cls.percent_to_byte(norm.r)
+        g = cls.percent_to_byte(norm.g)
+        b = cls.percent_to_byte(norm.b)
+        w = cls.percent_to_byte(norm.w)
+        uv = cls.percent_to_byte(norm.uv)
+        v = cls.percent_to_byte(norm.violet)
+        b6 = uv if uv > 0 or model_code in ("5748", "5749", "5751", "5752") else 0x55
+        b7 = v if v > 0 or model_code in ("5749", "5751", "5752") else 0x55
+        return bytes([0xFB, second_header, r, g, b, w, b6, b7])
+
+    @classmethod
+    def build_sunrise_sunset_packet(
+        cls,
+        start_h: int,
+        start_m: int,
+        end_h: int,
+        end_m: int,
+        ramp_idx: int = 2,
+        enabled: bool = True
+    ) -> bytes:
+        """Build dedicated Sunrise/Sunset timer packet (0xFE 0xF9 BCD(StartH) BCD(StartM) BCD(EndH) BCD(EndM) 0x01 RampIdx)."""
+        return bytes([
+            0xFE,
+            0xF9,
+            cls.decimal_to_bcd(start_h),
+            cls.decimal_to_bcd(start_m),
+            cls.decimal_to_bcd(end_h),
+            cls.decimal_to_bcd(end_m),
+            0x01 if enabled else 0x00,
+            max(0, min(5, int(ramp_idx)))
+        ])
+
+    @staticmethod
+    def split_cross_midnight_timer(
+        start_h: int,
+        start_m: int,
+        end_h: int,
+        end_m: int
+    ) -> list[tuple[int, int, int, int]]:
+        """Split a schedule/timer that crosses midnight into two gapless 24-hour schedule intervals:
+        1. Day 1: start_time ~ 24:00 (0x24 0x00)
+        2. Day 2: 00:00 ~ end_time (0x00 0x00)
+        If the timer does not cross midnight, returns a single interval [(start_h, start_m, end_h, end_m)].
+        """
+        # If identical times -> full 24h
+        if start_h == end_h and start_m == end_m:
+            return [(start_h, start_m, 24, 0)]
+
+        # If crossing midnight (e.g. 18:00 to 02:00)
+        if start_h > end_h or (start_h == end_h and start_m > end_m):
+            return [
+                (start_h, start_m, 24, 0),  # Slot 1: e.g. 18:00 -> 24:00
+                (0, 0, end_h, end_m)        # Slot 2: e.g. 00:00 -> 02:00
+            ]
+
+        # If ending at midnight exactly (e.g. 16:00 to 00:00)
+        if end_h == 0 and end_m == 0 and (start_h > 0 or start_m > 0):
+            return [(start_h, start_m, 24, 0)]
+
+        # Standard same-day schedule (e.g. 08:00 to 20:00)
+        return [(start_h, start_m, end_h, end_m)]
+
     @staticmethod
     def parse_power_kwh(data: bytes) -> float | None:
         """Parse accumulated energy (kWh) from Smart Plug GATT Notify characteristic."""

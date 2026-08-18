@@ -104,6 +104,115 @@ set_schedule:
       description: List of waypoints with time (HH:MM) and channel percentages (r, g, b, w, uv, v).
       required: true
 
+set_timer:
+  name: Set Hardware Schedule Timer (Cross-Midnight Auto Split)
+  description: Set a hardware sunrise/sunset or schedule timer. If the time range crosses midnight (e.g. 18:00 to 02:00), it automatically splits into two gapless schedules (18:00~24:00 and 00:00~02:00) with Mode 2 and RTC sync for seamless continuous lighting.
+  fields:
+    device_id:
+      name: Device
+      required: true
+      selector:
+        device:
+          integration: weekaqua
+    start_time:
+      name: Start Time
+      description: Start time in HH:MM format (e.g. "18:00" or "08:00").
+      required: true
+      example: "18:00"
+      selector:
+        text:
+    end_time:
+      name: End Time
+      description: End time in HH:MM format (e.g. "02:00", "24:00", or "20:00").
+      required: true
+      example: "02:00"
+      selector:
+        text:
+    preset:
+      name: Preset Name
+      description: Optional preset name (GreenGrass, RedGrass, FishMixed, CoralAb, etc.).
+      required: false
+      selector:
+        select:
+          options:
+            - GreenGrass
+            - RedGrass
+            - FishMixed
+            - Shrimp
+            - Fish
+            - CoralAb
+            - CoralLps
+            - CoralSps
+            - MarineFot
+            - DeepBlue
+            - Max
+            - AlgaeMax
+            - Moonlight
+    red:
+      name: Red %
+      required: false
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    green:
+      name: Green %
+      required: false
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    blue:
+      name: Blue %
+      required: false
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    white:
+      name: White %
+      required: false
+      default: 80
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    uv:
+      name: UV %
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    violet:
+      name: Violet %
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+    ramp_index:
+      name: Ramp Duration Index
+      description: 0 (0h), 1 (0.5h), 2 (1h), 3 (1.5h), 4 (2h), 5 (2.5h).
+      required: false
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 5
+          step: 1
+
 sync_rtc:
   name: Sync Real-Time Clock (RTC)
   description: Synchronize PC/HA server clock to WeekAqua light hardware RTC.

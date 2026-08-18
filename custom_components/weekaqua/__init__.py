@@ -29,6 +29,7 @@ PLATFORMS: list[Platform] = [
 SERVICE_APPLY_PRESET = "apply_preset"
 SERVICE_SET_SPECTRUM = "set_spectrum"
 SERVICE_SET_SCHEDULE = "set_schedule"
+SERVICE_SET_TIMER = "set_timer"
 SERVICE_SYNC_RTC = "sync_rtc"
 SERVICE_CONNECT = "connect"
 SERVICE_DISCONNECT = "disconnect"
@@ -65,6 +66,20 @@ SCHEMA_SET_SCHEDULE = vol.Schema({
             })
         ],
     ),
+})
+
+SCHEMA_SET_TIMER = vol.Schema({
+    vol.Required("device_id"): cv.string,
+    vol.Required("start_time"): cv.string,
+    vol.Required("end_time"): cv.string,
+    vol.Optional("preset"): vol.In(list(PRESETS.keys())),
+    vol.Optional("red", default=80.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("green", default=80.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("blue", default=80.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("white", default=80.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("uv", default=0.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("violet", default=0.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+    vol.Optional("ramp_index", default=2): vol.All(vol.Coerce(int), vol.Range(min=0, max=5)),
 })
 
 
@@ -105,6 +120,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for coord in hass.data[DOMAIN].values():
             await coord.async_set_schedule(points)
 
+    async def handle_set_timer(call: ServiceCall) -> None:
+        start_time = call.data["start_time"]
+        end_time = call.data["end_time"]
+        preset_key = call.data.get("preset")
+        if preset_key and preset_key in PRESETS:
+            p = PRESETS[preset_key]
+            r = p["r"]
+            g = p["g"]
+            b = p["b"]
+            w = p["w"]
+            uv = p.get("uv", 0.0)
+            violet = p.get("v", 0.0)
+        else:
+            r = call.data.get("red", 80.0)
+            g = call.data.get("green", 80.0)
+            b = call.data.get("blue", 80.0)
+            w = call.data.get("white", 80.0)
+            uv = call.data.get("uv", 0.0)
+            violet = call.data.get("violet", 0.0)
+        ramp_idx = call.data.get("ramp_index", 2)
+
+        for coord in hass.data[DOMAIN].values():
+            await coord.async_set_hardware_timer(
+                start_time, end_time, r, g, b, w, uv, violet, ramp_idx=ramp_idx
+            )
+
     async def handle_sync_rtc(call: ServiceCall) -> None:
         for coord in hass.data[DOMAIN].values():
             await coord.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
@@ -121,6 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, SERVICE_APPLY_PRESET, handle_apply_preset, schema=SCHEMA_APPLY_PRESET)
         hass.services.async_register(DOMAIN, SERVICE_SET_SPECTRUM, handle_set_spectrum, schema=SCHEMA_SET_SPECTRUM)
         hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule, schema=SCHEMA_SET_SCHEDULE)
+        hass.services.async_register(DOMAIN, SERVICE_SET_TIMER, handle_set_timer, schema=SCHEMA_SET_TIMER)
         hass.services.async_register(DOMAIN, SERVICE_SYNC_RTC, handle_sync_rtc)
         hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect)
         hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect)

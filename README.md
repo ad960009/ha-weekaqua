@@ -164,7 +164,19 @@ data:
       v: 0
 ```
 
-### 4. 수동 BLE 연결 해제 (스마트폰 공식 앱 사용 시)
+### 4. 하드웨어 타이머 스케줄 설정 (자정 24:00 자동 분할 무암전 연속 점등)
+조명 점등 시간이 자정을 넘기는 경우(예: 18:00 ~ 02:00) Home Assistant가 자동으로 **2개의 연속 스케줄 슬롯**(`18:00 ~ 24:00` 및 `00:00 ~ 02:00`)으로 분할 전송하여 MCU의 1분 암전(블랙아웃) 없이 매끄럽게 연속 점등됩니다:
+```yaml
+service: weekaqua.set_timer
+data:
+  start_time: "18:00"
+  end_time: "02:00"
+  preset: "GreenGrass"   # 또는 red, green, blue, white, uv, violet 값 직접 지정
+  ramp_index: 2          # 램프 시간 (0: 0분, 1: 30분, 2: 1시간, 3: 1.5시간, 4: 2시간, 5: 2.5시간)
+```
+
+### 5. 수동 BLE 연결 해제 (스마트폰 공식 앱 사용 시)
 ```yaml
 service: weekaqua.disconnect
 ```
+

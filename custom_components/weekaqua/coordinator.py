@@ -31,14 +31,19 @@ from .protocol import WeekAquaProtocol, NormalizedSpectrum
 _LOGGER = logging.getLogger(__name__)
 
 
-def parse_time_str(time_str: str) -> time:
-    """Parse HH:MM or HH:MM:SS string to datetime.time."""
-    parts = [int(p) for p in time_str.strip().split(":")]
-    if len(parts) == 2:
-        return time(parts[0], parts[1], 0)
+def parse_time_str(time_str: str) -> tuple[int, int, int]:
+    """Parse HH:MM, HH:MM:SS, or 24:00 string to (hour, minute, second)."""
+    s = str(time_str).strip()
+    if s in ("24:00", "24:0", "24"):
+        return 24, 0, 0
+    parts = [int(p) for p in s.split(":")]
+    if len(parts) == 1:
+        return max(0, min(24, parts[0])), 0, 0
+    elif len(parts) == 2:
+        return parts[0], parts[1], 0
     elif len(parts) >= 3:
-        return time(parts[0], parts[1], parts[2])
-    return time(0, 0, 0)
+        return parts[0], parts[1], parts[2]
+    return 0, 0, 0
 
 
 class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -250,8 +255,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Convert waypoints to (seconds, spectrum)
         points: list[tuple[int, dict[str, float]]] = []
         for pt in self.schedule_points:
-            t = parse_time_str(pt["time"])
-            sec = t.hour * 3600 + t.minute * 60 + t.second
+            h, m, s = parse_time_str(pt["time"])
+            sec = min(86400, h * 3600 + m * 60 + s)
             points.append((sec, {
                 "r": float(pt.get("r", 0)),
                 "g": float(pt.get("g", 0)),
@@ -403,6 +408,74 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_points = points
         self.schedule_enabled = True
         await self.async_refresh()
+
+    async def async_set_hardware_timer(
+        self,
+        start_time_str: str,
+        end_time_str: str,
+        r: float,
+        g: float,
+        b: float,
+        w: float,
+        uv: float = 0.0,
+        violet: float = 0.0,
+        ramp_idx: int = 2
+    ) -> None:
+        """Send hardware schedule timer to WeekAqua MCU.
+        If the schedule crosses midnight (e.g. 18:00 to 02:00),
+        it automatically splits into two consecutive hardware schedule slots:
+        1. Day 1: start_time ~ 24:00 (0x24 0x00)
+        2. Day 2: 00:00 ~ end_time (0x00 0x00)
+        Transmits Mode 2 (Advanced Ramp Mode) and RTC sync for seamless, gapless continuous lighting.
+        """
+        self.schedule_enabled = False
+
+        start_h, start_m, _ = parse_time_str(start_time_str)
+        end_h, end_m, _ = parse_time_str(end_time_str)
+
+        intervals = WeekAquaProtocol.split_cross_midnight_timer(start_h, start_m, end_h, end_m)
+
+        # 0. Prepend RTC clock sync packet
+        await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(datetime.now()))
+
+        if len(intervals) == 2:
+            # Crosses midnight: send two schedule slots
+            # Slot 1: Day 1 (start_h:start_m -> 24:00)
+            int1 = intervals[0]
+            t_pkt1 = WeekAquaProtocol.build_ramp_time_packet(1, int1[0], int1[1], int1[2], int1[3], enabled=True)
+            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(1, r, g, b, w, uv, violet, self.model_code)
+            await self.enqueue_packet(t_pkt1)
+            await self.enqueue_packet(s_pkt1)
+
+            # Slot 2: Day 2 (00:00 -> end_h:end_m)
+            int2 = intervals[1]
+            t_pkt2 = WeekAquaProtocol.build_ramp_time_packet(2, int2[0], int2[1], int2[2], int2[3], enabled=True)
+            s_pkt2 = WeekAquaProtocol.build_ramp_spectrum_packet(2, r, g, b, w, uv, violet, self.model_code)
+            await self.enqueue_packet(t_pkt2)
+            await self.enqueue_packet(s_pkt2)
+
+            # Activate Mode 2 (Advanced Custom Ramp Schedule Mode)
+            await self.enqueue_packet(WeekAquaProtocol.build_mode_packet(2))
+            _LOGGER.info(
+                "Sent 2-slot cross-midnight hardware schedule for WeekAqua (%s): %02d:%02d~24:00 & 00:00~%02d:%02d",
+                self.mac, int1[0], int1[1], int2[2], int2[3]
+            )
+        else:
+            # Single same-day schedule
+            int1 = intervals[0]
+            t_pkt1 = WeekAquaProtocol.build_ramp_time_packet(1, int1[0], int1[1], int1[2], int1[3], enabled=True)
+            s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(1, r, g, b, w, uv, violet, self.model_code)
+            await self.enqueue_packet(t_pkt1)
+            await self.enqueue_packet(s_pkt1)
+
+            # Activate Mode 2
+            await self.enqueue_packet(WeekAquaProtocol.build_mode_packet(2))
+            _LOGGER.info(
+                "Sent single-slot hardware schedule for WeekAqua (%s): %02d:%02d~%02d:%02d",
+                self.mac, int1[0], int1[1], int1[2], int1[3]
+            )
+
+        self.async_set_updated_data(self._build_data())
 
     async def async_set_schedule_enabled(self, enabled: bool) -> None:
         """Toggle dynamic schedule on or off."""

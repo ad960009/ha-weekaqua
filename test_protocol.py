@@ -56,6 +56,41 @@ class TestWeekAquaProtocol(unittest.TestCase):
         packet = WeekAquaProtocol.build_state_init_packet()
         self.assertEqual(packet.hex().upper(), "F055555555555555")
 
+    def test_ramp_time_packet_with_24_midnight(self):
+        # Test 22:48 -> 24:00 (Slot 5) -> FEF5224824005555
+        packet = WeekAquaProtocol.build_ramp_time_packet(5, 22, 48, 24, 0)
+        self.assertEqual(packet.hex().upper(), "FEF5224824005555")
+
+        # Test 00:00 -> 02:00 (Slot 6) -> FEF6000002005555
+        packet2 = WeekAquaProtocol.build_ramp_time_packet(6, 0, 0, 2, 0)
+        self.assertEqual(packet2.hex().upper(), "FEF6000002005555")
+
+    def test_ramp_spectrum_packet(self):
+        packet = WeekAquaProtocol.build_ramp_spectrum_packet(1, 100, 80, 60, 0)
+        self.assertEqual(packet[0], 0xFB)
+        self.assertEqual(packet[1], 0xF1)
+
+    def test_sunrise_sunset_packet(self):
+        packet = WeekAquaProtocol.build_sunrise_sunset_packet(8, 0, 18, 0, ramp_idx=2)
+        self.assertEqual(packet.hex().upper(), "FEF9080018000102")
+
+    def test_split_cross_midnight_timer(self):
+        # 18:00 to 02:00 crosses midnight -> 2 intervals (18:00~24:00 and 00:00~02:00)
+        intervals = WeekAquaProtocol.split_cross_midnight_timer(18, 0, 2, 0)
+        self.assertEqual(len(intervals), 2)
+        self.assertEqual(intervals[0], (18, 0, 24, 0))
+        self.assertEqual(intervals[1], (0, 0, 2, 0))
+
+        # 08:00 to 20:00 same-day -> 1 interval (08:00~20:00)
+        same_day = WeekAquaProtocol.split_cross_midnight_timer(8, 0, 20, 0)
+        self.assertEqual(len(same_day), 1)
+        self.assertEqual(same_day[0], (8, 0, 20, 0))
+
+        # 16:00 to 00:00 ends at midnight -> 1 interval (16:00~24:00)
+        midnight_end = WeekAquaProtocol.split_cross_midnight_timer(16, 0, 0, 0)
+        self.assertEqual(len(midnight_end), 1)
+        self.assertEqual(midnight_end[0], (16, 0, 24, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
