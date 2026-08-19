@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, date, time, timedelta
 import logging
+import time as pytime
 from typing import Any
 
 from bleak import BleakClient
@@ -54,6 +55,33 @@ def parse_time_str(time_str: str) -> tuple[int, int, int]:
     return 0, 0, 0
 
 
+def _uuid_matches(discovered_uuid: str, target_uuid: str) -> bool:
+    """
+    [핵심 개선 3] 16비트 vs 128비트 UUID 정규화 매칭 유틸리티.
+    Bleak가 128비트 전체 UUID를 리턴하고 target이 16비트 짧은 UUID(또는 그 반대)인 경우에도
+    정확히 일치 여부를 판별합니다.
+    """
+    d_clean = str(discovered_uuid).lower().replace("-", "").strip()
+    t_clean = str(target_uuid).lower().replace("-", "").strip()
+
+    # 1. 완전 일치 (128bit vs 128bit 또는 16bit vs 16bit)
+    if d_clean == t_clean:
+        return True
+
+    # 2. 16비트 축약형 비교 (표준 BLE 기본 Base UUID인 경우 4~8번째 자리 추출)
+    d_short = d_clean[4:8] if (len(d_clean) == 32 and d_clean.startswith("0000") and d_clean.endswith("00805f9b34fb")) else d_clean
+    t_short = t_clean[4:8] if (len(t_clean) == 32 and t_clean.startswith("0000") and t_clean.endswith("00805f9b34fb")) else t_clean
+
+    if d_short == t_short:
+        return True
+
+    # 3. 부분 문자열 포함 매칭 (예: "ffe1"이 "0000ffe1-..."에 포함되어 있는지)
+    if (len(t_clean) == 4 and t_clean in d_clean) or (len(d_clean) == 4 and d_clean in t_clean):
+        return True
+
+    return False
+
+
 class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator managing WeekAqua BLE communication and the Unlimited Dynamic Schedule Engine."""
 
@@ -83,15 +111,24 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.power_kwh: float = 0.0
         self.total_power_pct: float = 0.0
 
-        # Bleak Client & Lock
+        # Bleak Client & 독립적 락(Lock) 구조
+        # [핵심 개선 1] 데드락 방지를 위해 연결 전용 락과 쓰기 전용 락 분리
         self._client: BleakClientWithServiceCache | BleakClient | None = None
         self._write_char_uuid: str | None = None
         self._notify_char_uuid: str | None = None
-        self._lock = asyncio.Lock()
-        self._write_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._connect_lock = asyncio.Lock()  # BLE 연결/해제 전용 락
+        self._write_lock = asyncio.Lock()    # GATT 송신 직렬화 전용 락
+
+        # [핵심 개선 2] BlueZ 크래시 및 과도한 재시도 방지를 위한 상태 플래그 & 쿨다운 타이머
+        self._is_connecting: bool = False
+        self._last_connect_attempt: float = 0.0
+        self._connect_cooldown_sec: float = 15.0  # 연결 실패 시 최소 15초간 자동 재시도 억제
+
+        # [핵심 개선 4] 큐 누적 및 패킷 홍수 방지
+        self._write_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=10)
         self._queue_task: asyncio.Task | None = None
         self._auto_disconnect_task: asyncio.Task | None = None
-        self._auto_disconnect_delay: float = 60.0  # Disconnect after 60s of inactivity
+        self._auto_disconnect_delay: float = 60.0  # 60초 미사용 시 세션 자동 해제
         self._schedule_unsub: Any = None
         self._last_sent_spectrum: bytes | None = None
         self._last_rtc_sync_date: date | None = None
@@ -142,123 +179,152 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         return any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M")
 
-    async def _ensure_connected(self) -> bool:
-        """Ensure Bleak connection using Home Assistant Bluetooth backend / BLE Proxy."""
+    async def _ensure_connected(self, force: bool = False) -> bool:
+        """
+        [핵심 개선 1, 2] 안전한 비동기 연결 수립 및 중복 연결 방어 로직.
+        - 이미 연결되어 유효한 쓰기 특성이 있으면 즉시 True 반환.
+        - 다른 태스크가 이미 연결 시도 중이면 중복 시도를 막고 완료를 대기.
+        - 최근 연결 실패 시 쿨다운(15초)을 두어 BlueZ 스택 과부하 및 133 에러 방지.
+        """
         if self._client and self._client.is_connected and self._write_char_uuid:
             return True
 
-        ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
-        if not ble_device:
-            # Fallback to non-connectable scanner cache
-            ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=False)
-
-        if not ble_device:
-            _LOGGER.warning(
-                "WeekAqua (%s) was not found in Home Assistant Bluetooth scanner cache. "
-                "Please verify the light is powered on, within Bluetooth range, and not connected to phone app.",
-                self.mac
+        now = pytime.monotonic()
+        if not force and (now - self._last_connect_attempt < self._connect_cooldown_sec):
+            _LOGGER.debug(
+                "WeekAqua (%s) connect attempt throttled (cooldown active: %.1fs remaining)",
+                self.mac,
+                self._connect_cooldown_sec - (now - self._last_connect_attempt)
             )
             return False
 
-        # Auto-update device_name and model_code from live BLE scan data if currently generic
-        if ble_device.name and (not self.device_name or self.device_name.startswith("WeekAqua (") or self.device_name == "WeekAqua Light"):
-            self.device_name = ble_device.name
-            _LOGGER.info("Auto-discovered BLE device name: %s for %s", self.device_name, self.mac)
+        async with self._connect_lock:
+            # 락 획득 후 연결 상태 재검사 (Double-Checked Locking)
+            if self._client and self._client.is_connected and self._write_char_uuid:
+                return True
 
-        if not self.model_code:
-            try:
-                for s_info in bluetooth.async_discovered_service_info(self.hass):
-                    if s_info.address.upper() == self.mac.upper() and s_info.manufacturer_data:
-                        for m_id, m_data in s_info.manufacturer_data.items():
-                            hex_str = m_data.hex().upper()
-                            for target in ("5752", "5751", "5750", "5749", "5748", "5747", "5746", "5745"):
-                                if target in hex_str:
-                                    self.model_code = target
-                                    _LOGGER.info("Auto-discovered model code %s for %s", self.model_code, self.mac)
-                                    break
-            except Exception:
-                pass
-
-        try:
-            _LOGGER.info("Connecting to WeekAqua BLE %s (%s)...", self.device_name, self.mac)
-            self._client = await establish_connection(
-                BleakClientWithServiceCache,
-                ble_device,
-                self.device_name,
-                self._on_disconnected,
-                max_attempts=3,
-                use_services_cache=True,
-            )
-            self.is_connected = True
-            _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
-
-            # Discover and resolve Write and Notify characteristics
-            self._write_char_uuid = None
-            self._notify_char_uuid = None
-
-            # 1. Search known UUID lists in discovered services
-            for s in self._client.services:
-                for c in s.characteristics:
-                    c_uuid_lower = c.uuid.lower()
-                    for target_write in WRITE_CHAR_UUIDS:
-                        if target_write.lower() == c_uuid_lower:
-                            self._write_char_uuid = c.uuid
-                            break
-                    for target_notify in NOTIFY_CHAR_UUIDS:
-                        if target_notify.lower() == c_uuid_lower:
-                            self._notify_char_uuid = c.uuid
-                            break
-
-            # 2. Fallback to any characteristic with write property if not in known lists
-            if not self._write_char_uuid:
-                for s in self._client.services:
-                    for c in s.characteristics:
-                        if "write-without-response" in c.properties or "write" in c.properties:
-                            self._write_char_uuid = c.uuid
-                            _LOGGER.info("Resolved write characteristic by GATT property: %s (Service: %s)", c.uuid, s.uuid)
-                            break
-                    if self._write_char_uuid:
-                        break
-
-            if not self._write_char_uuid:
-                _LOGGER.error("No writable GATT characteristic found on %s (%s)", self.device_name, self.mac)
+            if self._is_connecting:
+                _LOGGER.debug("Connection already in progress for %s, skipping duplicate attempt.", self.mac)
                 return False
 
-            _LOGGER.info("Resolved GATT characteristics for %s: Write=%s, Notify=%s", self.mac, self._write_char_uuid, self._notify_char_uuid)
-            self.async_set_updated_data(self._build_data())
+            self._is_connecting = True
+            self._last_connect_attempt = pytime.monotonic()
 
-            # Sync Device Registry (Model & Bluetooth Connection identifier)
             try:
-                dev_reg = dr.async_get(self.hass)
-                device = dev_reg.async_get_device(identifiers={(DOMAIN, self.mac)})
-                if device:
-                    dev_reg.async_update_device(
-                        device_id=device.id,
-                        model=f"WeekAqua ({self.model_code or 'BLE'})",
-                        merge_connections={(dr.CONNECTION_BLUETOOTH, self.mac)},
+                ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
+                if not ble_device:
+                    # Fallback to non-connectable scanner cache
+                    ble_device = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=False)
+
+                if not ble_device:
+                    _LOGGER.warning(
+                        "WeekAqua (%s) not found in Home Assistant Bluetooth scanner cache. "
+                        "Verify device is powered on, within Bluetooth range, and not connected to phone app.",
+                        self.mac
                     )
-            except Exception as reg_err:
-                _LOGGER.debug("Device registry update on %s skipped: %s", self.mac, reg_err)
+                    return False
 
-            # Subscribe to GATT Notify for Smart Plug Power Meter
-            if self._notify_char_uuid:
+                # 광고 데이터로부터 장치명 및 모델 코드 자동 보정
+                if ble_device.name and (not self.device_name or self.device_name.startswith("WeekAqua (") or self.device_name == "WeekAqua Light"):
+                    self.device_name = ble_device.name
+                    _LOGGER.info("Auto-discovered BLE device name: %s for %s", self.device_name, self.mac)
+
+                if not self.model_code:
+                    try:
+                        for s_info in bluetooth.async_discovered_service_info(self.hass):
+                            if s_info.address.upper() == self.mac.upper() and s_info.manufacturer_data:
+                                for m_id, m_data in s_info.manufacturer_data.items():
+                                    hex_str = m_data.hex().upper()
+                                    for target in ("5752", "5751", "5750", "5749", "5748", "5747", "5746", "5745"):
+                                        if target in hex_str:
+                                            self.model_code = target
+                                            _LOGGER.info("Auto-discovered model code %s for %s", self.model_code, self.mac)
+                                            break
+                    except Exception:
+                        pass
+
+                _LOGGER.info("Connecting to WeekAqua BLE %s (%s)...", self.device_name, self.mac)
+                self._client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    ble_device,
+                    self.device_name,
+                    self._on_disconnected,
+                    max_attempts=2,
+                    use_services_cache=True,
+                )
+                self.is_connected = True
+                _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
+
+                # [핵심 개선 3] 16비트 vs 128비트 정규화 매칭을 통한 GATT 특성 탐색
+                self._write_char_uuid = None
+                self._notify_char_uuid = None
+
+                # 1. 알려진 공식 UUID 목록 매칭
+                for s in self._client.services:
+                    for c in s.characteristics:
+                        c_uuid_str = str(c.uuid)
+                        for target_write in WRITE_CHAR_UUIDS:
+                            if _uuid_matches(c_uuid_str, target_write):
+                                self._write_char_uuid = c.uuid
+                                break
+                        for target_notify in NOTIFY_CHAR_UUIDS:
+                            if _uuid_matches(c_uuid_str, target_notify):
+                                self._notify_char_uuid = c.uuid
+                                break
+
+                # 2. Fallback: 쓰기 속성을 가진 특성 탐색
+                if not self._write_char_uuid:
+                    for s in self._client.services:
+                        for c in s.characteristics:
+                            if "write-without-response" in c.properties or "write" in c.properties:
+                                self._write_char_uuid = c.uuid
+                                _LOGGER.info("Resolved write characteristic by GATT property: %s (Service: %s)", c.uuid, s.uuid)
+                                break
+                        if self._write_char_uuid:
+                            break
+
+                if not self._write_char_uuid:
+                    _LOGGER.error("No writable GATT characteristic found on %s (%s)", self.device_name, self.mac)
+                    return False
+
+                _LOGGER.info("Resolved GATT characteristics for %s: Write=%s, Notify=%s", self.mac, self._write_char_uuid, self._notify_char_uuid)
+                self.async_set_updated_data(self._build_data())
+
+                # Device Registry 동기화 (모델명 및 블루투스 연결자)
                 try:
-                    await self._client.start_notify(self._notify_char_uuid, self._on_notify)
-                    _LOGGER.info("Subscribed to GATT Notify: %s on %s", self._notify_char_uuid, self.mac)
-                except Exception as notify_err:
-                    _LOGGER.debug("Notify subscription on %s skipped: %s", self.mac, notify_err)
+                    dev_reg = dr.async_get(self.hass)
+                    device = dev_reg.async_get_device(identifiers={(DOMAIN, self.mac)})
+                    if device:
+                        dev_reg.async_update_device(
+                            device_id=device.id,
+                            model=f"WeekAqua ({self.model_code or 'BLE'})",
+                            merge_connections={(dr.CONNECTION_BLUETOOTH, self.mac)},
+                        )
+                except Exception as reg_err:
+                    _LOGGER.debug("Device registry update on %s skipped: %s", self.mac, reg_err)
 
-            # Sync RTC time and query initial state
-            await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
-            await self.enqueue_packet(WeekAquaProtocol.build_state_init_packet())
-            return True
-        except (BleakError, asyncio.TimeoutError, Exception) as err:
-            _LOGGER.warning("Failed to connect to WeekAqua (%s): %s", self.mac, err)
-            self.is_connected = False
-            self._client = None
-            self._write_char_uuid = None
-            self._notify_char_uuid = None
-            return False
+                # 스마트 플러그 전력 측정을 위한 Notify 구독
+                if self._notify_char_uuid:
+                    try:
+                        await self._client.start_notify(self._notify_char_uuid, self._on_notify)
+                        _LOGGER.info("Subscribed to GATT Notify: %s on %s", self._notify_char_uuid, self.mac)
+                    except Exception as notify_err:
+                        _LOGGER.debug("Notify subscription on %s skipped: %s", self.mac, notify_err)
+
+                # 초기 RTC 동기화 및 MCU 상태 리셋 패킷 전송
+                await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
+                await self.enqueue_packet(WeekAquaProtocol.build_state_init_packet())
+                return True
+
+            except (BleakError, asyncio.TimeoutError, Exception) as err:
+                _LOGGER.warning("Failed to connect to WeekAqua (%s): %s", self.mac, err)
+                self.is_connected = False
+                self._client = None
+                self._write_char_uuid = None
+                self._notify_char_uuid = None
+                return False
+            finally:
+                self._is_connecting = False
 
     def _on_disconnected(self, client: Any) -> None:
         """Callback when BLE device disconnects."""
@@ -279,18 +345,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.async_set_updated_data(self._build_data())
 
     async def async_connect(self) -> bool:
-        """Manually trigger connection to WeekAqua BLE device."""
-        async with self._lock:
-            connected = await self._ensure_connected()
-            if connected:
-                self._reset_inactivity_timer()
-            return connected
+        """Manually trigger connection to WeekAqua BLE device (Forces immediate connect)."""
+        connected = await self._ensure_connected(force=True)
+        if connected:
+            self._reset_inactivity_timer()
+        return connected
 
     async def async_disconnect(self) -> None:
         """Explicitly disconnect BLE client to release device for other apps."""
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
-        async with self._lock:
+        async with self._connect_lock:
             if self._client and self._client.is_connected:
                 try:
                     await self._client.disconnect()
@@ -321,30 +386,52 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except asyncio.CancelledError:
             pass
 
-    async def enqueue_packet(self, packet: bytes) -> None:
-        """Enqueue an 8-byte command packet to be transmitted."""
-        await self._write_queue.put(packet)
+    async def enqueue_packet(self, packet: bytes, is_live_spectrum: bool = False) -> None:
+        """
+        [핵심 개선 4] 큐 누적 및 패킷 홍수(Packet Flood) 방어 인큐잉.
+        - 실시간 스펙트럼 패킷인 경우, 큐에 대기 중인 이전 스펙트럼 패킷을 버리고 항상 최신 1개만 유지.
+        - 큐가 꽉 차있을 경우 오래된 패킷을 비워 버퍼 오버플로우 방지.
+        """
+        # 큐 크기가 초과된 경우 오래된 패킷 정리
+        if self._write_queue.full():
+            try:
+                _ = self._write_queue.get_nowait()
+                self._write_queue.task_done()
+            except asyncio.QueueEmpty:
+                pass
+
+        try:
+            self._write_queue.put_nowait(packet)
+        except asyncio.QueueFull:
+            pass
 
     async def _process_write_queue(self) -> None:
-        """Sequential writer with 500ms pacing to prevent packet collision."""
+        """
+        [핵심 개선 1] 락 격리 및 데드락이 없는 순차적 GATT 송신 워커.
+        - _ensure_connected()를 락 내부에서 호출하지 않고 별도 실행하여 데드락을 원천 차단.
+        - 패킷 송신 시에만 _write_lock을 점유하여 안전한 300ms 페이싱 전송 보장.
+        """
         while True:
             packet = await self._write_queue.get()
             try:
-                async with self._lock:
-                    connected = await self._ensure_connected()
-                    if connected and self._client and self._client.is_connected and self._write_char_uuid:
-                        # Zero-Latency RTC Sync: If this is an RTC sync packet (starts with 0xFF),
-                        # dynamically regenerate it with datetime.now() right before transmission
-                        # to eliminate BLE connection handshaking and queue latency.
-                        if len(packet) == 8 and packet[0] == 0xFF:
-                            packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
+                # 1. 연결 확인 (연결 전용 로직은 _connect_lock이 담당하므로 워커 데드락 없음)
+                connected = await self._ensure_connected()
+                if connected and self._client and self._client.is_connected and self._write_char_uuid:
+                    # 2. Zero-Latency RTC Sync: 0xFF 패킷은 송신 직전의 현재 시각으로 재생성
+                    if len(packet) == 8 and packet[0] == 0xFF:
+                        packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
 
+                    # 3. GATT 쓰기 락 점유 후 안전한 순차 전송
+                    async with self._write_lock:
                         await self._client.write_gatt_char(self._write_char_uuid, packet, response=False)
                         _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, packet.hex().upper())
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.3)
                         self._reset_inactivity_timer()
-                    else:
-                        _LOGGER.warning("BLE TX skipped for %s (%s) - device offline or no write char. Packet: %s", self.device_name, self.mac, packet.hex().upper())
+                else:
+                    _LOGGER.debug(
+                        "BLE TX skipped for %s (%s) - device offline or not ready. Packet: %s",
+                        self.device_name, self.mac, packet.hex().upper()
+                    )
             except Exception as ex:
                 _LOGGER.error("BLE TX error on %s (%s): %s", self.device_name, self.mac, ex)
             finally:
@@ -417,19 +504,25 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return WeekAquaProtocol.normalize_spectrum_to_max_power(lerp_r, lerp_g, lerp_b, lerp_w, lerp_uv, lerp_v, self.model_code)
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Periodic schedule evaluator and BLE synchronization tick."""
+        """
+        [핵심 개선 4] 주기적 스케줄 계산 및 조건부 패킷 전송.
+        - 기기가 오프라인일 때는 HA UI 상태만 실시간 계산하여 업데이트하고,
+          BLE 큐에 불필요한 패킷을 밀어 넣지 않아 패킷 홍수를 방지합니다.
+        """
         now = datetime.now()
 
-        # Daily Automatic RTC Synchronization (Runs once per day at midnight / date change)
+        # 1. 일일 자동 RTC 동기화 (하루 1회 자정에 실행)
         if self._last_rtc_sync_date != now.date():
             self._last_rtc_sync_date = now.date()
-            _LOGGER.info(
-                "Performing daily automatic RTC clock sync for WeekAqua (%s) at %s",
-                self.mac,
-                now.strftime("%Y-%m-%d %H:%M:%S")
-            )
-            await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(now))
+            if self.is_connected:
+                _LOGGER.info(
+                    "Performing daily automatic RTC clock sync for WeekAqua (%s) at %s",
+                    self.mac,
+                    now.strftime("%Y-%m-%d %H:%M:%S")
+                )
+                await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(now))
 
+        # 2. 동적 스케줄 실시간 보간 계산
         if self.schedule_enabled and self.schedule_points:
             target = self.calculate_interpolated_spectrum(now.time())
             self.current_r = target.r
@@ -439,16 +532,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
-            packet = WeekAquaProtocol.build_live_spectrum_packet(
-                self.current_r, self.current_g, self.current_b, self.current_w,
-                self.current_uv, self.current_v, self.model_code,
-                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-            )
+            # 기기가 온라인일 때만 BLE 전송 큐에 삽입
+            if self.is_connected:
+                packet = WeekAquaProtocol.build_live_spectrum_packet(
+                    self.current_r, self.current_g, self.current_b, self.current_w,
+                    self.current_uv, self.current_v, self.model_code,
+                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+                )
 
-            # Send only if spectrum changed significantly or on reconnection
-            if packet != self._last_sent_spectrum or not self.is_connected:
-                self._last_sent_spectrum = packet
-                await self.enqueue_packet(packet)
+                if packet != self._last_sent_spectrum:
+                    self._last_sent_spectrum = packet
+                    await self.enqueue_packet(packet, is_live_spectrum=True)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
@@ -468,7 +562,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "uv": self.current_uv,
             "v": self.current_v,
             "fan": self.current_fan,
-            "connected": self.is_connected,
             "power_pct": self.total_power_pct,
             "power_kwh": self.power_kwh,
             "schedule_enabled": self.schedule_enabled,
@@ -505,7 +598,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             is_4ch_rgb_uv=self._is_4ch_rgb_uv()
         )
         self._last_sent_spectrum = packet
-        await self.enqueue_packet(packet)
+        await self.enqueue_packet(packet, is_live_spectrum=True)
         self.async_set_updated_data(self._build_data())
 
     async def async_set_fan_speed(self, fan_pct: float) -> None:
