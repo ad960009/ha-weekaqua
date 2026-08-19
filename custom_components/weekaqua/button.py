@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -44,6 +45,7 @@ class WeekAquaConnectButton(CoordinatorEntity[WeekAquaCoordinator], ButtonEntity
         """Return device registry info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.mac)},
+            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
             name=self.coordinator.device_name,
             manufacturer="WeekAqua",
             model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
@@ -71,6 +73,7 @@ class WeekAquaDisconnectButton(CoordinatorEntity[WeekAquaCoordinator], ButtonEnt
         """Return device registry info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.mac)},
+            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
             name=self.coordinator.device_name,
             manufacturer="WeekAqua",
             model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",

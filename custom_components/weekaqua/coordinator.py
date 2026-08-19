@@ -15,6 +15,7 @@ from bleak_retry_connector import (
 
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
@@ -225,6 +226,19 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             _LOGGER.info("Resolved GATT characteristics for %s: Write=%s, Notify=%s", self.mac, self._write_char_uuid, self._notify_char_uuid)
             self.async_set_updated_data(self._build_data())
+
+            # Sync Device Registry (Model & Bluetooth Connection identifier)
+            try:
+                dev_reg = dr.async_get(self.hass)
+                device = dev_reg.async_get_device(identifiers={(DOMAIN, self.mac)})
+                if device:
+                    dev_reg.async_update_device(
+                        device_id=device.id,
+                        model=f"WeekAqua ({self.model_code or 'BLE'})",
+                        merge_connections={(dr.CONNECTION_BLUETOOTH, self.mac)},
+                    )
+            except Exception as reg_err:
+                _LOGGER.debug("Device registry update on %s skipped: %s", self.mac, reg_err)
 
             # Subscribe to GATT Notify for Smart Plug Power Meter
             if self._notify_char_uuid:

@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -69,6 +70,7 @@ class WeekAquaChannelNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity
         """Return device registry info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.mac)},
+            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
             name=self.coordinator.device_name,
             manufacturer="WeekAqua",
             model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
