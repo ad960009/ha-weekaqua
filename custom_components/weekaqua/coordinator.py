@@ -314,6 +314,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # 초기 RTC 동기화 및 MCU 상태 리셋 패킷 전송
                 await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
                 await self.enqueue_packet(WeekAquaProtocol.build_state_init_packet())
+
+                # 활성화된 동적 스케줄이 있다면 현재 시각에 맞는 스펙트럼 즉시 갱신 전송
+                if self.schedule_enabled and self.schedule_points:
+                    target = self.calculate_interpolated_spectrum(datetime.now().time())
+                    sched_pkt = WeekAquaProtocol.build_live_spectrum_packet(
+                        target.r, target.g, target.b, target.w, target.uv, target.violet,
+                        self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+                    )
+                    self._last_sent_spectrum = sched_pkt
+                    await self.enqueue_packet(sched_pkt, is_live_spectrum=True)
+
                 return True
 
             except (BleakError, asyncio.TimeoutError, Exception) as err:
@@ -389,15 +400,33 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def enqueue_packet(self, packet: bytes, is_live_spectrum: bool = False) -> None:
         """
         [핵심 개선 4] 큐 누적 및 패킷 홍수(Packet Flood) 방어 인큐잉.
-        - 실시간 스펙트럼 패킷인 경우, 큐에 대기 중인 이전 스펙트럼 패킷을 버리고 항상 최신 1개만 유지.
+        - 실시간 스펙트럼 패킷(FB F9)인 경우, 큐에 대기 중인 이전 스펙트럼 패킷을 버리고 항상 최신 1개만 유지.
         - 큐가 꽉 차있을 경우 오래된 패킷을 비워 버퍼 오버플로우 방지.
         """
-        # 큐 크기가 초과된 경우 오래된 패킷 정리
+        if is_live_spectrum:
+            # 큐 안에 이미 대기 중인 패킷 중 실시간 스펙트럼(0xFB 0xF9) 패킷이 있으면 비워줌
+            # (최신 스펙트럼 1개만 전송되도록 보장)
+            temp_list = []
+            while not self._write_queue.empty():
+                try:
+                    p = self._write_queue.get_nowait()
+                    self._write_queue.task_done()
+                    # 실시간 스펙트럼 패킷(FB F9)이 아닌 필수 제어 패킷(RTC 동기화 FF, 모드 설정 FD 등)만 보존
+                    if not (len(p) == 8 and p[0] == 0xFB and p[1] == 0xF9):
+                        temp_list.append(p)
+                except (asyncio.QueueEmpty, ValueError):
+                    break
+            for p in temp_list:
+                try:
+                    self._write_queue.put_nowait(p)
+                except asyncio.QueueFull:
+                    break
+
         if self._write_queue.full():
             try:
                 _ = self._write_queue.get_nowait()
                 self._write_queue.task_done()
-            except asyncio.QueueEmpty:
+            except (asyncio.QueueEmpty, ValueError):
                 pass
 
         try:
@@ -409,7 +438,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         [핵심 개선 1] 락 격리 및 데드락이 없는 순차적 GATT 송신 워커.
         - _ensure_connected()를 락 내부에서 호출하지 않고 별도 실행하여 데드락을 원천 차단.
-        - 패킷 송신 시에만 _write_lock을 점유하여 안전한 300ms 페이싱 전송 보장.
+        - 패킷 송신 시에만 _write_lock을 점유하여 안전한 500ms 페이싱 전송 보장 (MCU 버퍼 오버런 방지).
         """
         while True:
             packet = await self._write_queue.get()
@@ -421,11 +450,11 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if len(packet) == 8 and packet[0] == 0xFF:
                         packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
 
-                    # 3. GATT 쓰기 락 점유 후 안전한 순차 전송
+                    # 3. GATT 쓰기 락 점유 후 안전한 순차 전송 (500ms 간격 유지)
                     async with self._write_lock:
                         await self._client.write_gatt_char(self._write_char_uuid, packet, response=False)
                         _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, packet.hex().upper())
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.5)
                         self._reset_inactivity_timer()
                 else:
                     _LOGGER.debug(
@@ -532,17 +561,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
-            # 기기가 온라인일 때만 BLE 전송 큐에 삽입
-            if self.is_connected:
-                packet = WeekAquaProtocol.build_live_spectrum_packet(
-                    self.current_r, self.current_g, self.current_b, self.current_w,
-                    self.current_uv, self.current_v, self.model_code,
-                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-                )
+            packet = WeekAquaProtocol.build_live_spectrum_packet(
+                self.current_r, self.current_g, self.current_b, self.current_w,
+                self.current_uv, self.current_v, self.model_code,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
 
-                if packet != self._last_sent_spectrum:
-                    self._last_sent_spectrum = packet
-                    await self.enqueue_packet(packet, is_live_spectrum=True)
+            # 스펙트럼이 변경되었거나 연결이 끊겨있는 경우 최신 스펙트럼 패킷을 큐에 삽입
+            # (큐 워커가 _ensure_connected를 통해 안전하게 재연결 및 최신 스펙트럼 송신을 수행)
+            if packet != self._last_sent_spectrum or not self.is_connected:
+                self._last_sent_spectrum = packet
+                await self.enqueue_packet(packet, is_live_spectrum=True)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
