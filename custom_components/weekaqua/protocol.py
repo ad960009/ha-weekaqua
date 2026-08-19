@@ -312,16 +312,16 @@ class WeekAquaProtocol:
         if start_h == end_h and start_m == end_m:
             return [(start_h, start_m, 24, 0)]
 
+        # If ending at midnight exactly (e.g. 16:00 to 00:00 -> 16:00 to 24:00)
+        if end_h == 0 and end_m == 0 and (start_h > 0 or start_m > 0):
+            return [(start_h, start_m, 24, 0)]
+
         # If crossing midnight (e.g. 18:00 to 02:00)
         if start_h > end_h or (start_h == end_h and start_m > end_m):
             return [
                 (start_h, start_m, 24, 0),  # Slot 1: e.g. 18:00 -> 24:00
                 (0, 0, end_h, end_m)        # Slot 2: e.g. 00:00 -> 02:00
             ]
-
-        # If ending at midnight exactly (e.g. 16:00 to 00:00)
-        if end_h == 0 and end_m == 0 and (start_h > 0 or start_m > 0):
-            return [(start_h, start_m, 24, 0)]
 
         # Standard same-day schedule (e.g. 08:00 to 20:00)
         return [(start_h, start_m, end_h, end_m)]

@@ -31,10 +31,10 @@ def is_matching_weekaqua(service_info: BluetoothServiceInfoBleak) -> tuple[bool,
                     model_code = target
                     return True, model_code
 
-    # 2. Check Service UUIDs (1911, FFE0, FFF0, FF60, FEE0)
+    # 2. Check Service UUIDs (FFE0, FFF0, FF60)
     for u in service_info.service_uuids:
         u_upper = u.upper()
-        if any(uuid_part in u_upper for uuid_part in ("1911", "FFE0", "FFF0", "FF60", "FEE0")):
+        if any(uuid_part in u_upper for uuid_part in ("FFE0", "FFF0", "FF60")):
             return True, model_code
 
     # 3. Check LocalName (matching official WPF keywords & regex)
@@ -56,9 +56,9 @@ def is_matching_weekaqua(service_info: BluetoothServiceInfoBleak) -> tuple[bool,
 
 
 def format_and_validate_mac(raw_mac: str) -> str | None:
-    """Format and validate MAC address string to standard uppercase format C8:47:80:60:C6:65."""
+    """Format and validate MAC address string to standard uppercase format AA:BB:CC:11:22:33."""
     clean = raw_mac.strip().replace("-", ":").replace(".", ":").upper()
-    # Handle contiguous 12-char hex string (e.g. C8478060C665)
+    # Handle contiguous 12-char hex string (e.g. AABBCC112233)
     if len(clean) == 12 and all(c in "0123456789ABCDEF" for c in clean):
         clean = ":".join(clean[i:i+2] for i in range(0, 12, 2))
     if MAC_REGEX.match(clean):
@@ -203,7 +203,7 @@ class WeekAquaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="manual",
             data_schema=vol.Schema({
-                vol.Required(CONF_MAC, default="C8:47:80:60:C6:65"): str,
+                vol.Required(CONF_MAC, default="AA:BB:CC:11:22:33"): str,
                 vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
             }),
             errors=errors,

@@ -11,7 +11,7 @@
       },
       "manual": {
         "title": "WeekAqua MAC 주소 직접 입력",
-        "description": "WeekAqua 조명의 블루투스 MAC 주소(예: C8:47:80:60:C6:65)를 입력하세요.",
+        "description": "WeekAqua 조명의 블루투스 MAC 주소(예: AA:BB:CC:11:22:33)를 입력하세요.",
         "data": {
           "mac": "블루투스 MAC 주소",
           "name": "기기 이름"
@@ -26,7 +26,7 @@
       }
     },
     "error": {
-      "invalid_mac": "올바른 블루투스 MAC 주소 형식이 아닙니다 (예: C8:47:80:60:C6:65)."
+      "invalid_mac": "올바른 블루투스 MAC 주소 형식이 아닙니다 (예: AA:BB:CC:11:22:33)."
     },
     "abort": {
       "already_configured": "이미 등록된 WeekAqua 기기입니다."

@@ -32,15 +32,28 @@ class WeekAquaCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._activeTab = 'live'; // 'live' or 'schedule'
+    this._keepMoonlight = true;
     this._schedulePoints = [
-      { time: '08:00', r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0 },
-      { time: '09:30', r: 20, g: 30, b: 20, w: 30, uv: 10, v: 10 },
-      { time: '11:30', r: 60, g: 85, b: 60, w: 75, uv: 40, v: 30 },
-      { time: '14:00', r: 70, g: 100, b: 70, w: 90, uv: 50, v: 40 },
-      { time: '17:00', r: 50, g: 75, b: 50, w: 70, uv: 30, v: 20 },
-      { time: '19:00', r: 25, g: 30, b: 20, w: 25, uv: 10, v: 5 },
-      { time: '20:30', r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
-      { time: '23:00', r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0 },
+      { time: '18:00', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
+      { time: '18:26', r: 23, g: 29, b: 12, w: 23, uv: 3, v: 2 },
+      { time: '18:51', r: 34, g: 43, b: 17, w: 34, uv: 5, v: 2 },
+      { time: '19:17', r: 44, g: 56, b: 22, w: 44, uv: 6, v: 3 },
+      { time: '19:43', r: 53, g: 67, b: 27, w: 53, uv: 7, v: 4 },
+      { time: '20:09', r: 61, g: 77, b: 31, w: 61, uv: 8, v: 4 },
+      { time: '20:34', r: 67, g: 85, b: 34, w: 67, uv: 9, v: 4 },
+      { time: '21:00', r: 71, g: 90, b: 36, w: 71, uv: 10, v: 5 },
+      { time: '21:26', r: 74, g: 94, b: 38, w: 74, uv: 10, v: 5 },
+      { time: '21:51', r: 75, g: 95, b: 38, w: 75, uv: 10, v: 5 },
+      { time: '22:17', r: 74, g: 94, b: 38, w: 74, uv: 10, v: 5 },
+      { time: '22:43', r: 71, g: 90, b: 36, w: 71, uv: 10, v: 5 },
+      { time: '23:09', r: 67, g: 85, b: 34, w: 67, uv: 9, v: 4 },
+      { time: '23:34', r: 61, g: 77, b: 31, w: 61, uv: 8, v: 4 },
+      { time: '00:00', r: 53, g: 67, b: 27, w: 53, uv: 7, v: 4 },
+      { time: '00:24', r: 44, g: 56, b: 22, w: 44, uv: 6, v: 3 },
+      { time: '00:48', r: 34, g: 43, b: 17, w: 34, uv: 5, v: 2 },
+      { time: '01:12', r: 23, g: 29, b: 12, w: 23, uv: 3, v: 2 },
+      { time: '01:36', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
+      { time: '02:00', r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
     ];
   }
 
@@ -281,6 +294,41 @@ class WeekAquaCard extends HTMLElement {
           font-size: 12px;
           outline: none;
         }
+        .moonlight-toggle-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #18181B;
+          border: 1px solid #3F3F46;
+          border-radius: 6px;
+          padding: 7px 10px;
+          margin-bottom: 10px;
+        }
+        .moonlight-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #93C5FD;
+          cursor: pointer;
+          user-select: none;
+        }
+        .moonlight-label input[type="checkbox"] {
+          cursor: pointer;
+          accent-color: #3B82F6;
+          width: 15px;
+          height: 15px;
+          margin: 0;
+        }
+        .moonlight-badge {
+          font-size: 10px;
+          color: #60A5FA;
+          background: rgba(59, 130, 246, 0.15);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
         .btn-auto-distribute {
           background: linear-gradient(135deg, #2563EB, #7C3AED);
           color: #FFF;
@@ -459,7 +507,7 @@ class WeekAquaCard extends HTMLElement {
             <div class="sched-config-grid">
               <div class="config-item">
                 <label>🎛️ Slots (슬롯 수)</label>
-                <input type="number" id="sched-slots-input" min="3" max="32" value="8" style="width: 100%;">
+                <input type="number" id="sched-slots-input" min="3" max="48" value="20" style="width: 100%;">
               </div>
               <div class="config-item">
                 <label>🎨 Peak Preset (피크 프리셋)</label>
@@ -476,6 +524,13 @@ class WeekAquaCard extends HTMLElement {
                   <option value="Moonlight">🌙 Moonlight</option>
                 </select>
               </div>
+            </div>
+            <div class="moonlight-toggle-wrap">
+              <label class="moonlight-label" for="sched-keep-moonlight">
+                <input type="checkbox" id="sched-keep-moonlight" checked>
+                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 4% 유지)</span>
+              </label>
+              <span class="moonlight-badge" id="moonlight-status-badge">Blue 4%</span>
             </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
               ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
@@ -579,6 +634,35 @@ class WeekAquaCard extends HTMLElement {
       });
     });
 
+    // Schedule: Slots input listener
+    const slotsInput = root.getElementById('sched-slots-input');
+    if (slotsInput) {
+      slotsInput.addEventListener('input', () => {
+        this._userChangedSlots = true;
+      });
+    }
+
+    // Schedule: Moonlight checkbox toggle
+    const chkMoonlight = root.getElementById('sched-keep-moonlight');
+    const badgeMoonlight = root.getElementById('moonlight-status-badge');
+    if (chkMoonlight) {
+      chkMoonlight.addEventListener('change', () => {
+        this._keepMoonlight = chkMoonlight.checked;
+        if (badgeMoonlight) {
+          badgeMoonlight.textContent = this._keepMoonlight ? 'Blue 4%' : 'Off (0%)';
+          badgeMoonlight.style.color = this._keepMoonlight ? '#60A5FA' : '#94A3B8';
+        }
+        if (this._schedulePoints.length > 0) {
+          const lastPt = this._schedulePoints[this._schedulePoints.length - 1];
+          if (lastPt.r === 0 && lastPt.g === 0 && lastPt.w === 0 && (lastPt.b === 0 || lastPt.b === 4)) {
+            lastPt.b = this._keepMoonlight ? 4 : 0;
+            this._renderScheduleTable();
+            this._renderCurve();
+          }
+        }
+      });
+    }
+
     // Schedule: Auto Distribute
     const btnAuto = root.getElementById('btn-auto-distribute');
     if (btnAuto) {
@@ -588,7 +672,6 @@ class WeekAquaCard extends HTMLElement {
     // Schedule: Add Point
     root.getElementById('btn-add-pt').addEventListener('click', () => {
       this._schedulePoints.push({ time: '12:00', r: 50, g: 50, b: 50, w: 50, uv: 0, v: 0 });
-      const slotsInput = root.getElementById('sched-slots-input');
       if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
       this._renderScheduleTable();
       this._renderCurve();
@@ -669,12 +752,15 @@ class WeekAquaCard extends HTMLElement {
     const endInput = root.getElementById('sched-end-time');
     const slotsInput = root.getElementById('sched-slots-input');
     const presetSelect = root.getElementById('sched-preset-select');
+    const chkMoonlight = root.getElementById('sched-keep-moonlight');
 
     const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
-    const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 8) : 8;
+    const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
     const baseSpec = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
+    const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
+    this._keepMoonlight = keepMoonlight;
 
     const parseMin = (s) => {
       if (!s) return 0;
@@ -746,7 +832,12 @@ class WeekAquaCard extends HTMLElement {
       // Night Slot (At sunset endMin, e.g. 02:00)
       newPoints.push({
         time: formatMin(endMin),
-        r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0,
+        r: 0,
+        g: 0,
+        b: keepMoonlight ? 4 : 0,
+        w: 0,
+        uv: 0,
+        v: 0,
       });
     } else {
       // Same-day (e.g. 08:00 to 20:00)
@@ -770,7 +861,12 @@ class WeekAquaCard extends HTMLElement {
       // Night Slot (At sunset endMin)
       newPoints.push({
         time: formatMin(endMin),
-        r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0,
+        r: 0,
+        g: 0,
+        b: keepMoonlight ? 4 : 0,
+        w: 0,
+        uv: 0,
+        v: 0,
       });
     }
 
