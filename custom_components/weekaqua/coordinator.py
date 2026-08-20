@@ -143,6 +143,21 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=self.schedule_interval),
         )
 
+    @property
+    def display_name(self) -> str:
+        """Return the user-specified name from Device Registry, Config Entry, or Bluetooth discovery."""
+        if self._entry:
+            dev_reg = dr.async_get(self.hass)
+            device = dev_reg.async_get_device(identifiers={(DOMAIN, self.mac)})
+            if device:
+                if device.name_by_user:
+                    return device.name_by_user
+                if device.name and device.name not in ("WeekAqua Light", "WeekAqua"):
+                    return device.name
+            if self._entry.title and self._entry.title not in ("WeekAqua Light", "WeekAqua"):
+                return self._entry.title
+        return self.device_name or "WeekAqua Light"
+
     def _get_default_schedule(self) -> list[dict[str, Any]]:
         """Default natural 8-point smooth aquarium photoperiod."""
         return [

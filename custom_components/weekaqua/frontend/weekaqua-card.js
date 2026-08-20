@@ -1347,19 +1347,23 @@ class WeekAquaCard extends HTMLElement {
     const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
     const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
     const customTitle = this._config.title;
-    const bleName = (attr.device_name || '').trim();
+    const bleName = (attr.device_name || attr.model_name || '').trim();
     const modelCode = (attr.model_code || '').trim();
     const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
 
+    let titleStr = friendlyName || customTitle || bleName || 'WeekAqua Light';
+    if (bleName && friendlyName && bleName.toUpperCase() !== friendlyName.toUpperCase() && !friendlyName.toUpperCase().includes(bleName.toUpperCase())) {
+      titleStr = `${friendlyName} (${bleName})`;
+    }
     if (titleEl) {
-      titleEl.textContent = friendlyName || customTitle || bleName || 'WeekAqua Light';
+      titleEl.textContent = titleStr;
     }
 
     // Hardware Info Tag in Connection Bar: 🏷️ [Model / Name] • 📶 [MAC]
     const devTag = root.getElementById('conn-device-tag');
     if (devTag) {
       let modelDisplay = bleName;
-      if (!modelDisplay || modelDisplay === 'WeekAqua Light' || modelDisplay === friendlyName) {
+      if (!modelDisplay || modelDisplay === 'WeekAqua Light' || modelDisplay === 'WeekAqua') {
         if (modelCode) {
           modelDisplay = `Model ${modelCode}`;
         } else if (is4ChRgbUv) {
