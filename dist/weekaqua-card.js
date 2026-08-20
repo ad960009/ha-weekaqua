@@ -61,11 +61,14 @@ class WeekAquaCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.entity && !config.device_id) {
-      throw new Error('Please define an entity (e.g. light.aquarium_light) or device_id.');
+    if (!config) {
+      throw new Error('Invalid configuration');
     }
-    this._config = config;
+    this._config = Object.assign({}, config);
     this._render();
+    if (this._hass) {
+      this._updateState();
+    }
   }
 
   set hass(hass) {
@@ -1397,13 +1400,17 @@ class WeekAquaCard extends HTMLElement {
   }
 }
 
-customElements.define('weekaqua-card', WeekAquaCard);
+if (!customElements.get('weekaqua-card')) {
+  customElements.define('weekaqua-card', WeekAquaCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'weekaqua-card',
-  name: 'WeekAqua Aquarium Light Card',
-  description: 'WPF-style Dark Spectrum Controls & Unlimited Dynamic Schedule for WeekAqua.',
-  preview: true,
-  documentationURL: 'https://github.com/ad960009/ha-weekaqua',
-});
+if (!window.customCards.some((c) => c.type === 'weekaqua-card')) {
+  window.customCards.push({
+    type: 'weekaqua-card',
+    name: 'WeekAqua Aquarium Light Card',
+    description: 'WPF-style Dark Spectrum Controls & Unlimited Dynamic Schedule for WeekAqua.',
+    preview: true,
+    documentationURL: 'https://github.com/ad960009/ha-weekaqua',
+  });
+}
