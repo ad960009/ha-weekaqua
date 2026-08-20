@@ -156,6 +156,7 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             "schedule_meta": getattr(self.coordinator, "schedule_meta", {}),
             "model_code": self.coordinator.model_code,
             "device_name": self.coordinator.device_name,
+            "mac": self.coordinator.mac,
             "is_4ch_rgb_uv": self._is_4ch_rgb_uv(),
             "has_white": self._has_white(),
             "has_uv": self._has_uv(),

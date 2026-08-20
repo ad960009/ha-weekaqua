@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr, entity_registry as er
 
 from .const import DOMAIN, PRESETS
 from .coordinator import WeekAquaCoordinator
@@ -36,19 +36,23 @@ SERVICE_CONNECT = "connect"
 SERVICE_DISCONNECT = "disconnect"
 SERVICE_SET_SCHEDULE_ENABLED = "set_schedule_enabled"
 
-SCHEMA_SET_SCHEDULE_ENABLED = vol.Schema({
+SCHEMA_COMMON_TARGET = {
     vol.Optional("device_id"): cv.string,
     vol.Optional("entity_id"): cv.string,
+}
+
+SCHEMA_SET_SCHEDULE_ENABLED = vol.Schema({
+    **SCHEMA_COMMON_TARGET,
     vol.Required("enabled"): cv.boolean,
 })
 
 SCHEMA_APPLY_PRESET = vol.Schema({
-    vol.Required("device_id"): cv.string,
+    **SCHEMA_COMMON_TARGET,
     vol.Required("preset"): vol.In(list(PRESETS.keys())),
 })
 
 SCHEMA_SET_SPECTRUM = vol.Schema({
-    vol.Required("device_id"): cv.string,
+    **SCHEMA_COMMON_TARGET,
     vol.Required("red"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     vol.Required("green"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     vol.Required("blue"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
@@ -59,8 +63,7 @@ SCHEMA_SET_SPECTRUM = vol.Schema({
 })
 
 SCHEMA_SET_SCHEDULE = vol.Schema({
-    vol.Optional("device_id"): cv.string,
-    vol.Optional("entity_id"): cv.string,
+    **SCHEMA_COMMON_TARGET,
     vol.Required("points"): vol.All(
         cv.ensure_list,
         [
@@ -83,7 +86,7 @@ SCHEMA_SET_SCHEDULE = vol.Schema({
 })
 
 SCHEMA_SET_TIMER = vol.Schema({
-    vol.Required("device_id"): cv.string,
+    **SCHEMA_COMMON_TARGET,
     vol.Required("start_time"): cv.string,
     vol.Required("end_time"): cv.string,
     vol.Optional("preset"): vol.In(list(PRESETS.keys())),
@@ -95,6 +98,38 @@ SCHEMA_SET_TIMER = vol.Schema({
     vol.Optional("violet", default=0.0): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
     vol.Optional("ramp_index", default=2): vol.All(vol.Coerce(int), vol.Range(min=0, max=5)),
 })
+
+SCHEMA_TARGET_ONLY = vol.Schema(SCHEMA_COMMON_TARGET)
+
+
+def _get_target_coordinators(hass: HomeAssistant, call: ServiceCall) -> list[WeekAquaCoordinator]:
+    """Find specific target coordinator(s) based on entity_id or device_id in service call."""
+    entity_id = call.data.get("entity_id")
+    if entity_id:
+        state = hass.states.get(entity_id)
+        if state and "mac" in state.attributes:
+            target_mac = state.attributes["mac"].upper()
+            for coord in hass.data[DOMAIN].values():
+                if coord.mac.upper() == target_mac:
+                    return [coord]
+        ent_reg = er.async_get(hass)
+        ent_entry = ent_reg.async_get(entity_id)
+        if ent_entry and ent_entry.config_entry_id and ent_entry.config_entry_id in hass.data[DOMAIN]:
+            return [hass.data[DOMAIN][ent_entry.config_entry_id]]
+        for coord in hass.data[DOMAIN].values():
+            if coord.mac.replace(":", "").lower() in entity_id.lower():
+                return [coord]
+
+    device_id = call.data.get("device_id")
+    if device_id:
+        dev_reg = dr.async_get(hass)
+        device = dev_reg.async_get(device_id)
+        if device:
+            for entry_id in device.config_entries:
+                if entry_id in hass.data[DOMAIN]:
+                    return [hass.data[DOMAIN][entry_id]]
+
+    return list(hass.data[DOMAIN].values())
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -110,12 +145,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register Custom Services
+    # Register Custom Services with Target Resolution
     async def handle_apply_preset(call: ServiceCall) -> None:
         preset_key = call.data["preset"]
         if preset_key in PRESETS:
             preset = PRESETS[preset_key]
-            for coord in hass.data[DOMAIN].values():
+            for coord in _get_target_coordinators(hass, call):
                 await coord.async_set_spectrum(
                     preset["r"], preset["g"], preset["b"], preset["w"],
                     preset.get("uv", 0), preset.get("v", 0)
@@ -129,7 +164,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         uv = call.data.get("uv", 0.0)
         violet = call.data.get("violet", 0.0)
         disable_sched = call.data.get("disable_schedule", True)
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_set_spectrum(r, g, b, w, uv, violet, disable_schedule=disable_sched)
 
     async def handle_set_schedule(call: ServiceCall) -> None:
@@ -141,7 +176,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "preset": call.data.get("preset"),
             "keep_moonlight": call.data.get("keep_moonlight"),
         }
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_set_schedule(points, meta=meta)
 
     async def handle_set_timer(call: ServiceCall) -> None:
@@ -165,26 +200,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             violet = call.data.get("violet", 0.0)
         ramp_idx = call.data.get("ramp_index", 2)
 
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_set_hardware_timer(
                 start_time, end_time, r, g, b, w, uv, violet, ramp_idx=ramp_idx
             )
 
     async def handle_sync_rtc(call: ServiceCall) -> None:
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
 
     async def handle_connect(call: ServiceCall) -> None:
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_connect()
 
     async def handle_disconnect(call: ServiceCall) -> None:
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_disconnect()
 
     async def handle_set_schedule_enabled(call: ServiceCall) -> None:
         enabled = call.data["enabled"]
-        for coord in hass.data[DOMAIN].values():
+        for coord in _get_target_coordinators(hass, call):
             await coord.async_set_schedule_enabled(enabled)
 
     if not hass.services.has_service(DOMAIN, SERVICE_APPLY_PRESET):
@@ -192,9 +227,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, SERVICE_SET_SPECTRUM, handle_set_spectrum, schema=SCHEMA_SET_SPECTRUM)
         hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE, handle_set_schedule, schema=SCHEMA_SET_SCHEDULE)
         hass.services.async_register(DOMAIN, SERVICE_SET_TIMER, handle_set_timer, schema=SCHEMA_SET_TIMER)
-        hass.services.async_register(DOMAIN, SERVICE_SYNC_RTC, handle_sync_rtc)
-        hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect)
-        hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect)
+        hass.services.async_register(DOMAIN, SERVICE_SYNC_RTC, handle_sync_rtc, schema=SCHEMA_TARGET_ONLY)
+        hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect, schema=SCHEMA_TARGET_ONLY)
+        hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect, schema=SCHEMA_TARGET_ONLY)
         hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE_ENABLED, handle_set_schedule_enabled, schema=SCHEMA_SET_SCHEDULE_ENABLED)
 
     return True

@@ -757,6 +757,7 @@ class WeekAquaCard extends HTMLElement {
       if (this._hass) {
         this._hass.callService('weekaqua', 'connect', {
           device_id: this._config.device_id || '',
+          entity_id: this._config.entity || '',
         });
       }
       this._setConnectionStatus(true);
@@ -766,6 +767,7 @@ class WeekAquaCard extends HTMLElement {
       if (this._hass) {
         this._hass.callService('weekaqua', 'disconnect', {
           device_id: this._config.device_id || '',
+          entity_id: this._config.entity || '',
         });
       }
       this._setConnectionStatus(false);
@@ -910,6 +912,7 @@ class WeekAquaCard extends HTMLElement {
     if (this._hass) {
       this._hass.callService('weekaqua', 'set_spectrum', {
         device_id: this._config.device_id || '',
+        entity_id: this._config.entity || '',
         red: r,
         green: g,
         blue: b,
@@ -929,6 +932,7 @@ class WeekAquaCard extends HTMLElement {
     if (this._hass) {
       this._hass.callService('weekaqua', 'apply_preset', {
         device_id: this._config.device_id || '',
+        entity_id: this._config.entity || '',
         preset: presetName,
       });
     }
