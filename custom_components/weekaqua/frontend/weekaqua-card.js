@@ -157,12 +157,26 @@ class WeekAquaCard extends HTMLElement {
           padding: 6px 10px;
           margin-bottom: 12px;
           font-size: 11px;
+          gap: 8px;
         }
         .conn-badge {
           display: flex;
           align-items: center;
           gap: 5px;
           font-weight: 600;
+          white-space: nowrap;
+        }
+        .device-tag {
+          font-size: 10px;
+          color: #94A3B8;
+          font-family: monospace;
+          background: #18181B;
+          padding: 2px 8px;
+          border-radius: 4px;
+          border: 1px solid #3F3F46;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .conn-dot {
           width: 8px;
@@ -518,6 +532,7 @@ class WeekAquaCard extends HTMLElement {
             <div class="conn-dot online" id="conn-dot"></div>
             <span id="conn-status-txt">Auto-Connect (Active)</span>
           </div>
+          <div class="device-tag" id="conn-device-tag" style="display: none;"></div>
           <div style="display: flex; gap: 4px;">
             <button class="btn-conn" id="btn-manual-conn">⚡ Connect</button>
             <button class="btn-conn disconnect" id="btn-manual-disconn">❌ Disconnect</button>
@@ -1157,9 +1172,12 @@ class WeekAquaCard extends HTMLElement {
     });
   }
 
-  _renderCurve() {
-    const path = this.shadowRoot.getElementById('curve-path');
-    if (!path || this._schedulePoints.length === 0) return;
+  _getSchedulePowerAtMinute(minute) {
+    if (!this._schedulePoints || this._schedulePoints.length === 0) return 0;
+    if (this._schedulePoints.length === 1) {
+      const pt = this._schedulePoints[0];
+      return this._calculatePower(pt.r, pt.g, pt.b, pt.w, pt.uv, pt.v);
+    }
 
     const parseMin = (s) => {
       if (!s) return 0;
@@ -1168,19 +1186,66 @@ class WeekAquaCard extends HTMLElement {
       return (parts[0] || 0) * 60 + (parts[1] || 0);
     };
 
-    const sorted = [...this._schedulePoints].sort((a, b) => {
-      return parseMin(a.time) - parseMin(b.time);
-    });
+    const pts = this._schedulePoints;
+    const startMin = parseMin(pts[0].time);
+    const endMin = parseMin(pts[pts.length - 1].time);
+    const endPower = this._calculatePower(
+      pts[pts.length - 1].r, pts[pts.length - 1].g, pts[pts.length - 1].b,
+      pts[pts.length - 1].w, pts[pts.length - 1].uv, pts[pts.length - 1].v
+    );
+
+    // Check if current minute is in the Night / Off hold interval (from endMin until startMin)
+    let inHoldInterval = false;
+    if (endMin <= startMin) {
+      // Crosses midnight (e.g. 18:00 to 02:00). Active: >=18:00 or <02:00. Hold: 02:00 <= min < 18:00
+      if (minute >= endMin && minute < startMin) {
+        inHoldInterval = true;
+      }
+    } else {
+      // Same-day (e.g. 08:00 to 20:00). Active: 08:00 <= min < 20:00. Hold: <08:00 or >=20:00
+      if (minute < startMin || minute >= endMin) {
+        inHoldInterval = true;
+      }
+    }
+
+    if (inHoldInterval) {
+      return endPower;
+    }
+
+    // Inside active schedule interval -> Lerp along elapsed timeline from startMin
+    const timeline = pts.map((pt) => {
+      const m = parseMin(pt.time);
+      const elapsed = (m >= startMin) ? (m - startMin) : (1440 - startMin + m);
+      const p = this._calculatePower(pt.r, pt.g, pt.b, pt.w, pt.uv, pt.v);
+      return { elapsed, power: p };
+    }).sort((a, b) => a.elapsed - b.elapsed);
+
+    const elapsedNow = (minute >= startMin) ? (minute - startMin) : (1440 - startMin + minute);
+
+    for (let i = 0; i < timeline.length - 1; i++) {
+      if (timeline[i].elapsed <= elapsedNow && elapsedNow <= timeline[i + 1].elapsed) {
+        const t1 = timeline[i].elapsed;
+        const t2 = timeline[i + 1].elapsed;
+        const ratio = (t2 > t1) ? (elapsedNow - t1) / (t2 - t1) : 0;
+        return timeline[i].power + (timeline[i + 1].power - timeline[i].power) * ratio;
+      }
+    }
+
+    return endPower;
+  }
+
+  _renderCurve() {
+    const path = this.shadowRoot.getElementById('curve-path');
+    if (!path || !this._schedulePoints || this._schedulePoints.length === 0) return;
 
     let d = 'M 0 100 ';
-    sorted.forEach((pt, i) => {
-      const min = parseMin(pt.time);
-      const x = (min / 1440) * 240;
-      const power = this._calculatePower(pt.r, pt.g, pt.b, pt.w, pt.uv, pt.v);
+    const numSamples = 240;
+    for (let x = 0; x <= numSamples; x++) {
+      const min = (x / numSamples) * 1440;
+      const power = this._getSchedulePowerAtMinute(min);
       const y = 100 - power;
-      if (i === 0) d += `L ${x} ${y} `;
-      d += `L ${x} ${y} `;
-    });
+      d += `L ${x} ${y.toFixed(1)} `;
+    }
 
     d += 'L 240 100 Z';
     path.setAttribute('d', d);
@@ -1277,26 +1342,38 @@ class WeekAquaCard extends HTMLElement {
     const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
     const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
 
-    // Dynamic Title: Display "기기명 (기기모델)" (e.g. "어항 조명 (M800-PRO)")
+    // Dynamic Title & Hardware Tag
     const titleEl = root.getElementById('card-title-text');
+    const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
+    const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
+    const customTitle = this._config.title;
+    const bleName = (attr.device_name || '').trim();
+    const modelCode = (attr.model_code || '').trim();
+    const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
+
     if (titleEl) {
-      const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
-      const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
-      const customTitle = this._config.title;
-      const bleName = (attr.device_name || '').trim();
-      const modelCode = (attr.model_code || '').trim();
+      titleEl.textContent = friendlyName || customTitle || bleName || 'WeekAqua Light';
+    }
 
-      let baseName = customTitle || friendlyName || bleName || 'WeekAqua Light';
-      let modelTag = bleName;
-      if ((!modelTag || modelTag === 'WeekAqua Light' || modelTag.startsWith('WeekAqua (')) && modelCode) {
-        modelTag = `Model ${modelCode}`;
+    // Hardware Info Tag in Connection Bar: 🏷️ [Model / Name] • 📶 [MAC]
+    const devTag = root.getElementById('conn-device-tag');
+    if (devTag) {
+      let modelDisplay = bleName;
+      if (!modelDisplay || modelDisplay === 'WeekAqua Light' || modelDisplay === friendlyName) {
+        if (modelCode) {
+          modelDisplay = `Model ${modelCode}`;
+        } else if (is4ChRgbUv) {
+          modelDisplay = '4CH-Pro (RGB/UV)';
+        } else {
+          modelDisplay = 'WeekAqua 4CH';
+        }
       }
-
-      if (modelTag && baseName && !baseName.toUpperCase().includes(modelTag.toUpperCase()) && baseName.toUpperCase() !== modelTag.toUpperCase()) {
-        titleEl.textContent = `${baseName} (${modelTag})`;
-      } else {
-        titleEl.textContent = baseName || modelTag || 'WeekAqua Light';
+      let tagText = `🏷️ ${modelDisplay}`;
+      if (mac) {
+        tagText += ` • 📶 ${mac}`;
       }
+      devTag.textContent = tagText;
+      devTag.style.display = 'block';
     }
 
     // Sliders Ordering & Labels
