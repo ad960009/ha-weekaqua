@@ -302,6 +302,7 @@ class WeekAquaCard extends HTMLElement {
         .preset-btn:hover {
           background: #3F3F46;
           border-color: #60A5FA;
+        }
         /* Schedule Status Header */
         .sched-status-bar {
           display: flex;
