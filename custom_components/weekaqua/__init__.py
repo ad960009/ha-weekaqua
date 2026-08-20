@@ -52,7 +52,8 @@ SCHEMA_SET_SPECTRUM = vol.Schema({
 })
 
 SCHEMA_SET_SCHEDULE = vol.Schema({
-    vol.Required("device_id"): cv.string,
+    vol.Optional("device_id"): cv.string,
+    vol.Optional("entity_id"): cv.string,
     vol.Required("points"): vol.All(
         cv.ensure_list,
         [
@@ -67,6 +68,11 @@ SCHEMA_SET_SCHEDULE = vol.Schema({
             })
         ],
     ),
+    vol.Optional("start_time"): cv.string,
+    vol.Optional("end_time"): cv.string,
+    vol.Optional("slots"): vol.Coerce(int),
+    vol.Optional("preset"): cv.string,
+    vol.Optional("keep_moonlight"): cv.boolean,
 })
 
 SCHEMA_SET_TIMER = vol.Schema({
@@ -91,7 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Automatically serve and register Lovelace dashboard card & copy to www
     await async_setup_frontend(hass)
 
-    coordinator = WeekAquaCoordinator(hass, entry.data)
+    coordinator = WeekAquaCoordinator(hass, entry.data, entry=entry)
     await coordinator.async_setup()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
@@ -121,8 +127,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_set_schedule(call: ServiceCall) -> None:
         points = call.data["points"]
+        meta = {
+            "start_time": call.data.get("start_time"),
+            "end_time": call.data.get("end_time"),
+            "slots": call.data.get("slots"),
+            "preset": call.data.get("preset"),
+            "keep_moonlight": call.data.get("keep_moonlight"),
+        }
         for coord in hass.data[DOMAIN].values():
-            await coord.async_set_schedule(points)
+            await coord.async_set_schedule(points, meta=meta)
 
     async def handle_set_timer(call: ServiceCall) -> None:
         start_time = call.data["start_time"]

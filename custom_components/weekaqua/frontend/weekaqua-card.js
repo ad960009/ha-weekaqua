@@ -33,6 +33,8 @@ class WeekAquaCard extends HTMLElement {
     this._config = null;
     this._activeTab = 'live'; // 'live' or 'schedule'
     this._keepMoonlight = true;
+    this._hasLoadedInitialSchedule = false;
+    this._scheduleMeta = null;
     this._schedulePoints = [
       { time: '18:00', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
       { time: '18:26', r: 23, g: 29, b: 12, w: 23, uv: 3, v: 2 },
@@ -71,7 +73,46 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _calculatePower(r, g, b, w, uv = 0, v = 0) {
-    return Math.min(100.0, Math.round((r * 0.41 + g * 0.42 + b * 0.49 + w * 0.08 + uv * 0.08 + v * 0.08) * 10) / 10);
+    const attr = this._modelInfo || {};
+    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
+      ? Boolean(this._config.is_4ch_rgb_uv)
+      : (attr.is_4ch_rgb_uv || (attr.device_name && (
+          attr.device_name.toUpperCase().includes('M800') ||
+          attr.device_name.toUpperCase().includes('M600') ||
+          attr.device_name.toUpperCase().includes('M-PRO') ||
+          attr.device_name.toUpperCase().includes('M PRO') ||
+          attr.device_name.toUpperCase().includes('S-PRO') ||
+          attr.device_name.toUpperCase().includes('S400') ||
+          attr.device_name.toUpperCase().includes('S600') ||
+          attr.device_name.toUpperCase().includes('S800') ||
+          attr.device_name.toUpperCase().includes('T90') ||
+          attr.device_name.toUpperCase().includes('P600') ||
+          attr.device_name.toUpperCase().includes('P800') ||
+          attr.device_name.toUpperCase().includes('P900') ||
+          attr.device_name.toUpperCase().includes('P1200') ||
+          attr.device_name.toUpperCase().includes('Z400') ||
+          attr.device_name.toUpperCase().includes('Z600')
+        )));
+    const modelCode = attr.model_code || '';
+
+    let total = 0;
+    if (is4ChRgbUv || modelCode === '5746') {
+      // 4-Channel RGB/UV (e.g. M800 Pro, M600, S-Series, T90)
+      total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (uv * 0.08);
+    } else if (modelCode === '5748') {
+      // 5-Channel Mode 5 (RGBW + UV)
+      total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (w * 0.08) + (uv * 0.08);
+    } else if (modelCode === '5749') {
+      // 6-Channel Mode 6 (RGBW + UV + Violet)
+      total = (r * 0.41) + (g * 0.42) + (b * 0.49) + (w * 0.08) + (uv * 0.08) + (v * 0.08);
+    } else if (modelCode === '5750' || modelCode === '5751' || modelCode === '5752') {
+      // 7+ Channel Advanced High Power Models
+      total = ((r * 0.29) + (g * 0.69) + (b * 0.73) + (w * 0.10) + (uv * 0.40) + (v * 0.40)) / 1.06;
+    } else {
+      // Standard 4-Channel RGBW
+      total = (r * 0.39) + (g * 0.41) + (b * 0.53) + (w * 0.11);
+    }
+    return Math.min(100.0, Math.round(total * 10) / 10);
   }
 
   _render() {
@@ -452,7 +493,7 @@ class WeekAquaCard extends HTMLElement {
               <span class="val-badge" id="txt-b">50%</span>
             </div>
             <div class="slider-row" id="row-uv">
-              <span class="channel-label" id="lbl-uv" style="color: #C084FC">UV/UVA</span>
+              <span class="channel-label" id="lbl-uv" style="color: #C084FC">UV</span>
               <input type="range" id="sl-uv" min="0" max="100" value="0">
               <span class="val-badge" id="txt-uv">0%</span>
             </div>
@@ -545,7 +586,14 @@ class WeekAquaCard extends HTMLElement {
             <table>
               <thead>
                 <tr>
-                  <th>Time</th><th>R%</th><th>G%</th><th>B%</th><th id="th-ch4">UV%</th><th id="th-ch5">W%</th><th id="th-ch6" style="display:none;">V%</th><th></th>
+                  <th>Time</th>
+                  <th>R%</th>
+                  <th>G%</th>
+                  <th>B%</th>
+                  <th id="th-uv">UV%</th>
+                  <th id="th-w">W%</th>
+                  <th id="th-v" style="display:none;">V%</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="sched-tbody"></tbody>
@@ -562,8 +610,64 @@ class WeekAquaCard extends HTMLElement {
     `;
 
     this._bindEvents();
+    this._restoreFromLocalStorage();
     this._renderScheduleTable();
     this._renderCurve();
+  }
+
+  _restoreFromLocalStorage() {
+    const key = 'weekaqua_sched_' + (this._config?.entity || 'default');
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.points && Array.isArray(data.points) && data.points.length > 0) {
+          this._schedulePoints = data.points;
+        }
+        if (data) {
+          this._scheduleMeta = data;
+          this._applyScheduleMeta(data);
+        }
+      }
+    } catch (e) {}
+  }
+
+  _applyScheduleMeta(meta) {
+    if (!meta) return;
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    if (meta.start_time) {
+      const startEl = root.getElementById('sched-start-time');
+      if (startEl) startEl.value = meta.start_time;
+    }
+    if (meta.end_time) {
+      const endEl = root.getElementById('sched-end-time');
+      if (endEl) endEl.value = meta.end_time;
+    }
+    if (meta.slots) {
+      const slotsEl = root.getElementById('sched-slots-input');
+      if (slotsEl) {
+        slotsEl.value = String(meta.slots);
+        this._userChangedSlots = true;
+      }
+    }
+    if (meta.preset) {
+      const presetEl = root.getElementById('sched-preset-select');
+      if (presetEl) presetEl.value = meta.preset;
+    }
+    if (meta.keep_moonlight !== undefined) {
+      const chk = root.getElementById('sched-keep-moonlight');
+      const badge = root.getElementById('moonlight-status-badge');
+      if (chk) {
+        chk.checked = Boolean(meta.keep_moonlight);
+        this._keepMoonlight = chk.checked;
+        if (badge) {
+          badge.textContent = this._keepMoonlight ? 'Blue 4%' : 'Off (0%)';
+          badge.style.color = this._keepMoonlight ? '#60A5FA' : '#94A3B8';
+        }
+      }
+    }
   }
 
   _bindEvents() {
@@ -881,8 +985,37 @@ class WeekAquaCard extends HTMLElement {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const is4ChRgbUv = this._modelInfo ? this._modelInfo.is_4ch_rgb_uv : true;
-    const has6ch = this._modelInfo ? this._modelInfo.has_6ch : false;
+    const attr = this._modelInfo || {};
+    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
+      ? Boolean(this._config.is_4ch_rgb_uv)
+      : (attr.is_4ch_rgb_uv || (attr.device_name && (
+          attr.device_name.toUpperCase().includes('M800') ||
+          attr.device_name.toUpperCase().includes('M600') ||
+          attr.device_name.toUpperCase().includes('M-PRO') ||
+          attr.device_name.toUpperCase().includes('M PRO') ||
+          attr.device_name.toUpperCase().includes('S-PRO') ||
+          attr.device_name.toUpperCase().includes('S400') ||
+          attr.device_name.toUpperCase().includes('S600') ||
+          attr.device_name.toUpperCase().includes('S800') ||
+          attr.device_name.toUpperCase().includes('T90') ||
+          attr.device_name.toUpperCase().includes('P600') ||
+          attr.device_name.toUpperCase().includes('P800') ||
+          attr.device_name.toUpperCase().includes('P900') ||
+          attr.device_name.toUpperCase().includes('P1200') ||
+          attr.device_name.toUpperCase().includes('Z400') ||
+          attr.device_name.toUpperCase().includes('Z600')
+        )));
+    const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
+    const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
+    const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
+
+    // Dynamically update Table Header labels & column visibility
+    const thUv = root.getElementById('th-uv');
+    const thW = root.getElementById('th-w');
+    const thV = root.getElementById('th-v');
+    if (thUv) thUv.style.display = hasUv ? '' : 'none';
+    if (thW) thW.style.display = hasWhite ? '' : 'none';
+    if (thV) thV.style.display = has6ch ? '' : 'none';
 
     this._schedulePoints.forEach((pt, idx) => {
       const tr = document.createElement('tr');
@@ -891,8 +1024,8 @@ class WeekAquaCard extends HTMLElement {
         <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r"></td>
         <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g"></td>
         <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b"></td>
-        <td><input type="number" min="0" max="100" value="${is4ChRgbUv ? (pt.uv || 0) : pt.w}" data-k="${is4ChRgbUv ? 'uv' : 'w'}"></td>
-        <td><input type="number" min="0" max="100" value="${is4ChRgbUv ? pt.w : (pt.uv || 0)}" data-k="${is4ChRgbUv ? 'w' : 'uv'}"></td>
+        <td style="${hasUv ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv"></td>
+        <td style="${hasWhite ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.w || 0}" data-k="w"></td>
         <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v"></td>
         <td><button class="btn-sm" data-del="${idx}">✕</button></td>
       `;
@@ -947,10 +1080,45 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _saveScheduleToHA() {
+    const root = this.shadowRoot;
+    const startInput = root.getElementById('sched-start-time');
+    const endInput = root.getElementById('sched-end-time');
+    const slotsInput = root.getElementById('sched-slots-input');
+    const presetSelect = root.getElementById('sched-preset-select');
+    const chkMoonlight = root.getElementById('sched-keep-moonlight');
+
+    const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
+    const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
+    const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
+    const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
+    const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
+
+    const schedMeta = {
+      points: this._schedulePoints,
+      start_time: startStr,
+      end_time: endStr,
+      slots: totalSlots,
+      preset: presetName,
+      keep_moonlight: keepMoonlight,
+    };
+    this._scheduleMeta = schedMeta;
+
+    // Cache locally for instant UI reload
+    const key = 'weekaqua_sched_' + (this._config?.entity || 'default');
+    try {
+      localStorage.setItem(key, JSON.stringify(schedMeta));
+    } catch (e) {}
+
     if (this._hass) {
       this._hass.callService('weekaqua', 'set_schedule', {
         device_id: this._config.device_id || '',
+        entity_id: this._config.entity || '',
         points: this._schedulePoints,
+        start_time: startStr,
+        end_time: endStr,
+        slots: totalSlots,
+        preset: presetName,
+        keep_moonlight: keepMoonlight,
       });
       alert('✅ WeekAqua Natural Schedule saved and synced to Home Assistant!');
     }
@@ -979,15 +1147,47 @@ class WeekAquaCard extends HTMLElement {
 
     const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
       ? Boolean(this._config.is_4ch_rgb_uv)
-      : (attr.is_4ch_rgb_uv || (attr.device_name && (attr.device_name.includes('M800') || attr.device_name.includes('M600') || attr.device_name.includes('M-PRO') || attr.device_name.includes('S-PRO') || attr.device_name.includes('T90'))));
-    const hasUv = this._config.has_uv !== undefined ? Boolean(this._config.has_uv) : (attr.has_uv || is4ChRgbUv);
-    const has6ch = this._config.has_6ch !== undefined ? Boolean(this._config.has_6ch) : attr.has_6ch;
-    const maxSlots = attr.max_slots || (is4ChRgbUv ? 8 : 8);
+      : (attr.is_4ch_rgb_uv || (attr.device_name && (
+          attr.device_name.toUpperCase().includes('M800') ||
+          attr.device_name.toUpperCase().includes('M600') ||
+          attr.device_name.toUpperCase().includes('M-PRO') ||
+          attr.device_name.toUpperCase().includes('M PRO') ||
+          attr.device_name.toUpperCase().includes('S-PRO') ||
+          attr.device_name.toUpperCase().includes('S400') ||
+          attr.device_name.toUpperCase().includes('S600') ||
+          attr.device_name.toUpperCase().includes('S800') ||
+          attr.device_name.toUpperCase().includes('T90') ||
+          attr.device_name.toUpperCase().includes('P600') ||
+          attr.device_name.toUpperCase().includes('P800') ||
+          attr.device_name.toUpperCase().includes('P900') ||
+          attr.device_name.toUpperCase().includes('P1200') ||
+          attr.device_name.toUpperCase().includes('Z400') ||
+          attr.device_name.toUpperCase().includes('Z600')
+        )));
+    const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
+    const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
+    const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
 
-    // Dynamic Title
+    // Dynamic Title: Display "기기명 (기기모델)" (e.g. "어항 조명 (M800-PRO)")
     const titleEl = root.getElementById('card-title-text');
-    if (titleEl && !this._config.title && attr.device_name) {
-      titleEl.textContent = attr.device_name;
+    if (titleEl) {
+      const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
+      const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
+      const customTitle = this._config.title;
+      const bleName = (attr.device_name || '').trim();
+      const modelCode = (attr.model_code || '').trim();
+
+      let baseName = customTitle || friendlyName || bleName || 'WeekAqua Light';
+      let modelTag = bleName;
+      if ((!modelTag || modelTag === 'WeekAqua Light' || modelTag.startsWith('WeekAqua (')) && modelCode) {
+        modelTag = `Model ${modelCode}`;
+      }
+
+      if (modelTag && baseName && !baseName.toUpperCase().includes(modelTag.toUpperCase()) && baseName.toUpperCase() !== modelTag.toUpperCase()) {
+        titleEl.textContent = `${baseName} (${modelTag})`;
+      } else {
+        titleEl.textContent = baseName || modelTag || 'WeekAqua Light';
+      }
     }
 
     // Sliders Ordering & Labels
@@ -995,59 +1195,60 @@ class WeekAquaCard extends HTMLElement {
     const rowW = root.getElementById('row-w');
     const rowV = root.getElementById('row-v');
     const lblUv = root.getElementById('lbl-uv');
-    const lblW = root.getElementById('lbl-w');
     const container = root.getElementById('sliders-container');
 
-    const thCh4 = root.getElementById('th-ch4');
-    const thCh5 = root.getElementById('th-ch5');
-    const thCh6 = root.getElementById('th-ch6');
-
-    if (is4ChRgbUv) {
-      // 4-CH RGB/UV (e.g. M800 Pro): Place UV directly after Blue
+    if (rowUv) {
+      rowUv.style.display = hasUv ? 'grid' : 'none';
       if (lblUv) {
-        lblUv.textContent = 'UV (Ultraviolet)';
+        lblUv.textContent = is4ChRgbUv ? 'UV (Ultraviolet)' : 'UV/UVA';
         lblUv.style.color = '#C084FC';
       }
-      if (lblW) lblW.textContent = 'White (W)';
-      if (rowUv && rowW && container) {
-        container.insertBefore(rowUv, rowW);
-      }
-      if (rowV) rowV.style.display = 'none';
-      if (thCh4) thCh4.textContent = 'UV%';
-      if (thCh5) thCh5.textContent = 'W%';
-      if (thCh6) thCh6.style.display = 'none';
-    } else {
-      // Standard RGBW / RGBW+UV / 6CH
-      if (lblW) lblW.textContent = 'White (W)';
-      if (lblUv) {
-        lblUv.textContent = 'UV/UVA';
-        lblUv.style.color = '#8B5CF6';
-      }
-      if (rowW && rowUv && container) {
-        container.insertBefore(rowW, rowUv);
-      }
-      if (rowV) rowV.style.display = has6ch ? 'grid' : 'none';
-      if (thCh4) thCh4.textContent = 'W%';
-      if (thCh5) thCh5.textContent = 'UV%';
-      if (thCh6) thCh6.style.display = has6ch ? '' : 'none';
+    }
+    if (rowW) {
+      rowW.style.display = hasWhite ? 'grid' : 'none';
+    }
+    if (rowV) {
+      rowV.style.display = has6ch ? 'grid' : 'none';
+    }
+
+    if (is4ChRgbUv && rowUv && rowW && container) {
+      container.insertBefore(rowUv, rowW);
     }
 
     const slotsInput = root.getElementById('sched-slots-input');
     if (slotsInput && !this._userChangedSlots && this._schedulePoints) {
       slotsInput.value = String(this._schedulePoints.length);
     }
+
+    // Re-render schedule table & gauge with verified model specs
+    this._renderScheduleTable();
+    this._updateGauge();
   }
 
   _updateState() {
     if (!this._hass || !this._config.entity) return;
     const stateObj = this._hass.states[this._config.entity];
     if (stateObj) {
-      const isOnline = stateObj.state === 'on' || (stateObj.attributes && stateObj.attributes.connected);
+      const isOnline = Boolean(stateObj.attributes && stateObj.attributes.connected);
       this._setConnectionStatus(isOnline);
 
       if (stateObj.attributes) {
         const attr = stateObj.attributes;
         this._applyModelLayout(attr);
+
+        // Synchronize and restore schedule points and metadata from HA entity attributes
+        if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {
+          if (!this._hasLoadedInitialSchedule) {
+            this._schedulePoints = JSON.parse(JSON.stringify(attr.schedule_points));
+            this._hasLoadedInitialSchedule = true;
+            if (attr.schedule_meta) {
+              this._scheduleMeta = attr.schedule_meta;
+              this._applyScheduleMeta(attr.schedule_meta);
+            }
+            this._renderScheduleTable();
+            this._renderCurve();
+          }
+        }
 
         if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
           this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);

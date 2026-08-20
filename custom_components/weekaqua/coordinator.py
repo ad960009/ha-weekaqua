@@ -85,16 +85,18 @@ def _uuid_matches(discovered_uuid: str, target_uuid: str) -> bool:
 class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator managing WeekAqua BLE communication and the Unlimited Dynamic Schedule Engine."""
 
-    def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any]) -> None:
+    def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any], entry: Any = None) -> None:
         """Initialize the WeekAqua coordinator."""
+        self._entry = entry
         self.mac: str = entry_data[CONF_MAC]
         self.device_name: str = entry_data.get(CONF_NAME, "WeekAqua")
         self.model_code: str = entry_data.get(CONF_MODEL_CODE, "")
         self.keep_moonlight: bool = entry_data.get(CONF_KEEP_MOONLIGHT, True)
         self.schedule_interval: int = entry_data.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL)
 
-        # Dynamic Unlimited Schedule Waypoints: list of dicts {"time": "08:00", "r": 0, "g": 0, "b": 0, "w": 0, "uv": 0, "v": 0}
+        # Dynamic Unlimited Schedule Waypoints & Metadata (Persisted across restarts)
         self.schedule_points: list[dict[str, Any]] = entry_data.get(CONF_SCHEDULE, self._get_default_schedule())
+        self.schedule_meta: dict[str, Any] = entry_data.get("schedule_meta", {})
         self.schedule_enabled: bool = True
 
         # Current live channel state (0.0 ~ 100.0)
@@ -121,8 +123,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # [핵심 개선 2] BlueZ 크래시 및 과도한 재시도 방지를 위한 상태 플래그 & 쿨다운 타이머
         self._is_connecting: bool = False
+        self._manual_disconnected: bool = False
         self._last_connect_attempt: float = 0.0
-        self._connect_cooldown_sec: float = 15.0  # 연결 실패 시 최소 15초간 자동 재시도 억제
+        self._connect_cooldown_sec: float = 15.0  # 15초 쿨다운으로 133 에러 방어15초간 자동 재시도 억제
 
         # [핵심 개선 4] 큐 누적 및 패킷 홍수 방지
         self._write_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=10)
@@ -186,6 +189,12 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         - 다른 태스크가 이미 연결 시도 중이면 중복 시도를 막고 완료를 대기.
         - 최근 연결 실패 시 쿨다운(15초)을 두어 BlueZ 스택 과부하 및 133 에러 방지.
         """
+        if force:
+            self._manual_disconnected = False
+        elif self._manual_disconnected:
+            _LOGGER.debug("WeekAqua (%s) connect skipped - manual disconnect active.", self.mac)
+            return False
+
         if self._client and self._client.is_connected and self._write_char_uuid:
             return True
 
@@ -357,6 +366,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_connect(self) -> bool:
         """Manually trigger connection to WeekAqua BLE device (Forces immediate connect)."""
+        self._manual_disconnected = False
         connected = await self._ensure_connected(force=True)
         if connected:
             self._reset_inactivity_timer()
@@ -364,8 +374,18 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_disconnect(self) -> None:
         """Explicitly disconnect BLE client to release device for other apps."""
+        self._manual_disconnected = True
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
+
+        # 대기 중인 패킷 큐를 즉시 비워 워커가 재연결을 시도하지 않도록 방지
+        while not self._write_queue.empty():
+            try:
+                self._write_queue.get_nowait()
+                self._write_queue.task_done()
+            except (asyncio.QueueEmpty, ValueError):
+                break
+
         async with self._connect_lock:
             if self._client and self._client.is_connected:
                 try:
@@ -567,11 +587,11 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
 
-            # 스펙트럼이 변경되었거나 연결이 끊겨있는 경우 최신 스펙트럼 패킷을 큐에 삽입
-            # (큐 워커가 _ensure_connected를 통해 안전하게 재연결 및 최신 스펙트럼 송신을 수행)
-            if packet != self._last_sent_spectrum or not self.is_connected:
-                self._last_sent_spectrum = packet
-                await self.enqueue_packet(packet, is_live_spectrum=True)
+            # 사용자가 수동으로 연결을 해제하지 않았고 스펙트럼이 실제로 변경되었을 때만 큐에 전송
+            if not self._manual_disconnected:
+                if packet != self._last_sent_spectrum and self.is_connected:
+                    self._last_sent_spectrum = packet
+                    await self.enqueue_packet(packet, is_live_spectrum=True)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
@@ -595,6 +615,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "power_kwh": self.power_kwh,
             "schedule_enabled": self.schedule_enabled,
             "schedule_points": self.schedule_points,
+            "schedule_meta": self.schedule_meta,
         }
 
     # --- Public Control Methods (Called by Entities & Services) ---
@@ -637,10 +658,30 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.enqueue_packet(packet)
         self.async_set_updated_data(self._build_data())
 
-    async def async_set_schedule(self, points: list[dict[str, Any]]) -> None:
-        """Update unlimited schedule waypoints and re-evaluate immediately."""
+    async def async_set_schedule(
+        self,
+        points: list[dict[str, Any]],
+        meta: dict[str, Any] | None = None
+    ) -> None:
+        """Update unlimited schedule waypoints and metadata, then persist and re-evaluate immediately."""
         self.schedule_points = points
+        if meta:
+            self.schedule_meta = {**self.schedule_meta, **{k: v for k, v in meta.items() if v is not None}}
         self.schedule_enabled = True
+
+        # Persist to ConfigEntry storage across HA restarts
+        if self._entry:
+            try:
+                new_data = {
+                    **self._entry.data,
+                    CONF_SCHEDULE: points,
+                    "schedule_meta": self.schedule_meta,
+                }
+                self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+            except Exception as err:
+                _LOGGER.debug("Failed to persist schedule to config entry: %s", err)
+
+        self.async_set_updated_data(self._build_data())
         await self.async_refresh()
 
     async def async_set_hardware_timer(

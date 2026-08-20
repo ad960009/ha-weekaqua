@@ -102,6 +102,12 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             return True
         return code == "5746"
 
+    def _has_white(self) -> bool:
+        """Detect if device has physical White channel."""
+        if self._is_4ch_rgb_uv():
+            return False
+        return True
+
     def _has_uv(self) -> bool:
         """Detect if device has UV/UVA channel."""
         code = self.coordinator.model_code
@@ -146,9 +152,12 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             "power_pct": self.coordinator.total_power_pct,
             "connected": self.coordinator.is_connected,
             "schedule_enabled": self.coordinator.schedule_enabled,
+            "schedule_points": self.coordinator.schedule_points,
+            "schedule_meta": getattr(self.coordinator, "schedule_meta", {}),
             "model_code": self.coordinator.model_code,
             "device_name": self.coordinator.device_name,
             "is_4ch_rgb_uv": self._is_4ch_rgb_uv(),
+            "has_white": self._has_white(),
             "has_uv": self._has_uv(),
             "has_6ch": self._has_6ch(),
             "max_slots": self._max_slots(),
