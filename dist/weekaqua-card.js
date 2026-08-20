@@ -1319,24 +1319,27 @@ class WeekAquaCard extends HTMLElement {
     const root = this.shadowRoot;
     if (!root) return;
 
+    const bleName = (attr.ble_name || attr.device_name || attr.model_name || '').trim();
     const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
       ? Boolean(this._config.is_4ch_rgb_uv)
-      : (attr.is_4ch_rgb_uv || (attr.device_name && (
-          attr.device_name.toUpperCase().includes('M800') ||
-          attr.device_name.toUpperCase().includes('M600') ||
-          attr.device_name.toUpperCase().includes('M-PRO') ||
-          attr.device_name.toUpperCase().includes('M PRO') ||
-          attr.device_name.toUpperCase().includes('S-PRO') ||
-          attr.device_name.toUpperCase().includes('S400') ||
-          attr.device_name.toUpperCase().includes('S600') ||
-          attr.device_name.toUpperCase().includes('S800') ||
-          attr.device_name.toUpperCase().includes('T90') ||
-          attr.device_name.toUpperCase().includes('P600') ||
-          attr.device_name.toUpperCase().includes('P800') ||
-          attr.device_name.toUpperCase().includes('P900') ||
-          attr.device_name.toUpperCase().includes('P1200') ||
-          attr.device_name.toUpperCase().includes('Z400') ||
-          attr.device_name.toUpperCase().includes('Z600')
+      : (attr.is_4ch_rgb_uv || (bleName && (
+          bleName.toUpperCase().includes('M800') ||
+          bleName.toUpperCase().includes('M600') ||
+          bleName.toUpperCase().includes('M-PRO') ||
+          bleName.toUpperCase().includes('M PRO') ||
+          bleName.toUpperCase().includes('MPRO') ||
+          bleName.toUpperCase().includes('S-PRO') ||
+          bleName.toUpperCase().includes('SPRO') ||
+          bleName.toUpperCase().includes('S400') ||
+          bleName.toUpperCase().includes('S600') ||
+          bleName.toUpperCase().includes('S800') ||
+          bleName.toUpperCase().includes('T90') ||
+          bleName.toUpperCase().includes('P600') ||
+          bleName.toUpperCase().includes('P800') ||
+          bleName.toUpperCase().includes('P900') ||
+          bleName.toUpperCase().includes('P1200') ||
+          bleName.toUpperCase().includes('Z400') ||
+          bleName.toUpperCase().includes('Z600')
         )));
     const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
     const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
@@ -1347,7 +1350,6 @@ class WeekAquaCard extends HTMLElement {
     const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
     const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
     const customTitle = this._config.title;
-    const bleName = (attr.device_name || attr.model_name || '').trim();
     const modelCode = (attr.model_code || '').trim();
     const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
 

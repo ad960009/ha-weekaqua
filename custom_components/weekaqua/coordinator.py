@@ -144,18 +144,29 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     @property
+    def ble_name(self) -> str:
+        """Return the raw Bluetooth advertised LocalName (e.g. B3.0-M800pro-18)."""
+        service_info = bluetooth.async_last_service_info(self.hass, self.mac, connectable=True)
+        if service_info and service_info.name:
+            return service_info.name
+        ble_dev = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
+        if ble_dev and ble_dev.name:
+            return ble_dev.name
+        return self.device_name or "WeekAqua Light"
+
+    @property
     def display_name(self) -> str:
         """Return the user-specified name from Device Registry, Config Entry, or Bluetooth discovery."""
         if self._entry:
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get_device(identifiers={(DOMAIN, self.mac)})
-            if device:
-                if device.name_by_user:
-                    return device.name_by_user
-                if device.name and device.name not in ("WeekAqua Light", "WeekAqua"):
-                    return device.name
-            if self._entry.title and self._entry.title not in ("WeekAqua Light", "WeekAqua"):
-                return self._entry.title
+            if device and device.name_by_user:
+                return device.name_by_user
+        ble = self.ble_name
+        if ble and ble not in ("WeekAqua Light", "WeekAqua"):
+            return ble
+        if self._entry and self._entry.title and self._entry.title not in ("WeekAqua Light", "WeekAqua"):
+            return self._entry.title
         return self.device_name or "WeekAqua Light"
 
     def _get_default_schedule(self) -> list[dict[str, Any]]:
@@ -192,10 +203,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
         if self.model_code in ("5748", "5749", "5750", "5751", "5752"):
             return False
-        name = (self.device_name or "").upper()
-        if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
-            return False
-        return any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M")
+        names = [
+            (self.ble_name or "").upper(),
+            (self.device_name or "").upper(),
+            (self.display_name or "").upper(),
+        ]
+        for name in names:
+            if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
+                return False
+            if any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "MPRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M"):
+                return True
+        return False
 
     async def _ensure_connected(self, force: bool = False) -> bool:
         """

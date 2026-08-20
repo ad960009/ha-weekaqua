@@ -91,15 +91,20 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
         )
 
     def _is_4ch_rgb_uv(self) -> bool:
-        """Detect if device is a 4-channel RGB/UV light (M-Series, S-Series, T90, etc.)."""
+        """Detect if device is a 4-channel RGB/UV light (M800 Pro, M600, S-Series, T90, etc.)."""
         code = self.coordinator.model_code
         if code in ("5748", "5749", "5750", "5751", "5752"):
             return False
-        name = (self.coordinator.device_name or "").upper()
-        if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
-            return False
-        if any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M"):
-            return True
+        names = [
+            (self.coordinator.ble_name or "").upper(),
+            (self.coordinator.device_name or "").upper(),
+            (self.coordinator.display_name or "").upper(),
+        ]
+        for name in names:
+            if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
+                return False
+            if any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "MPRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M"):
+                return True
         return code == "5746"
 
     def _has_white(self) -> bool:
@@ -113,16 +118,30 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
         code = self.coordinator.model_code
         if code in ("5748", "5749", "5750", "5751", "5752"):
             return True
-        name = (self.coordinator.device_name or "").upper()
-        return any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430", "UV", "UVA")) or self._is_4ch_rgb_uv()
+        names = [
+            (self.coordinator.ble_name or "").upper(),
+            (self.coordinator.device_name or "").upper(),
+            (self.coordinator.display_name or "").upper(),
+        ]
+        for name in names:
+            if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430", "UV", "UVA")):
+                return True
+        return self._is_4ch_rgb_uv()
 
     def _has_6ch(self) -> bool:
         """Detect if device has 6 or more channels (Violet)."""
         code = self.coordinator.model_code
         if code in ("5749", "5750", "5751", "5752"):
             return True
-        name = (self.coordinator.device_name or "").upper()
-        return any(w in name for w in ("6CH", "10CH"))
+        names = [
+            (self.coordinator.ble_name or "").upper(),
+            (self.coordinator.device_name or "").upper(),
+            (self.coordinator.display_name or "").upper(),
+        ]
+        for name in names:
+            if any(w in name for w in ("6CH", "10CH")):
+                return True
+        return False
 
     def _max_slots(self) -> int:
         """Detect maximum hardware schedule slots for model (5, 8, or 12)."""
@@ -133,14 +152,21 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             return 12
         elif code in ("5746", "5749", "5751"):
             return 8
-        name = (self.coordinator.device_name or "").upper()
-        if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A430")):
-            return 12
+        names = [
+            (self.coordinator.ble_name or "").upper(),
+            (self.coordinator.device_name or "").upper(),
+            (self.coordinator.display_name or "").upper(),
+        ]
+        for name in names:
+            if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A430")):
+                return 12
         return 8
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes for card and automations."""
+        ble_n = self.coordinator.ble_name
+        disp_n = self.coordinator.display_name
         return {
             "r": self.coordinator.current_r,
             "g": self.coordinator.current_g,
@@ -155,8 +181,9 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             "schedule_points": self.coordinator.schedule_points,
             "schedule_meta": getattr(self.coordinator, "schedule_meta", {}),
             "model_code": self.coordinator.model_code,
-            "device_name": self.coordinator.display_name,
-            "model_name": self.coordinator.display_name,
+            "device_name": ble_n or disp_n,
+            "ble_name": ble_n,
+            "model_name": ble_n or disp_n,
             "mac": self.coordinator.mac,
             "is_4ch_rgb_uv": self._is_4ch_rgb_uv(),
             "has_white": self._has_white(),
