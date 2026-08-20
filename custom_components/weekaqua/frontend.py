@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 URL_BASE = "/weekaqua_static"
 CARD_FILENAME = "weekaqua-card.js"
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 
 def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:
@@ -66,7 +66,7 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
     except Exception as err:
         _LOGGER.debug("add_extra_js_url error: %s", err)
 
-    # 3. Auto-register in Lovelace Resources Storage
+    # 3. Auto-register / update in Lovelace Resources Storage
     try:
         if "lovelace" in hass.data:
             lovelace = hass.data["lovelace"]
@@ -79,11 +79,20 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
                         item for item in resources.async_items()
                         if item.get("url", "").startswith(URL_BASE) or item.get("url", "").startswith("/local/weekaqua-card")
                     ]
+                    target_url = f"{card_url}?v={VERSION}"
                     if not existing:
                         await resources.async_create_item({
                             "res_type": "module",
-                            "url": f"{card_url}?v={VERSION}",
+                            "url": target_url,
                         })
-                        _LOGGER.info("WeekAqua Card automatically registered into Lovelace Resources")
+                        _LOGGER.info("WeekAqua Card automatically registered into Lovelace Resources: %s", target_url)
+                    else:
+                        for item in existing:
+                            if item.get("url") != target_url and hasattr(resources, "async_update_item"):
+                                await resources.async_update_item(item["id"], {
+                                    "res_type": "module",
+                                    "url": target_url,
+                                })
+                                _LOGGER.info("WeekAqua Card resource automatically updated in Lovelace Resources: %s", target_url)
     except Exception as err:
         _LOGGER.debug("Lovelace resource storage auto-registration note: %s", err)
