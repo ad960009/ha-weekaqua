@@ -154,47 +154,51 @@ class WeekAquaCard extends HTMLElement {
           justify-content: space-between;
           background: #27272A;
           border-radius: 8px;
-          padding: 6px 10px;
+          padding: 8px 12px;
           margin-bottom: 12px;
-          font-size: 11px;
-          gap: 8px;
+          font-size: 13px;
+          gap: 10px;
+          flex-wrap: wrap;
         }
         .conn-badge {
           display: flex;
           align-items: center;
-          gap: 5px;
+          gap: 6px;
           font-weight: 600;
+          font-size: 12.5px;
           white-space: nowrap;
         }
         .device-tag {
-          font-size: 10px;
-          color: #94A3B8;
-          font-family: monospace;
+          font-size: 12px;
+          font-weight: 600;
+          color: #A5F3FC;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
           background: #18181B;
-          padding: 2px 8px;
-          border-radius: 4px;
+          padding: 3px 10px;
+          border-radius: 6px;
           border: 1px solid #3F3F46;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          letter-spacing: 0.2px;
         }
         .conn-dot {
-          width: 8px;
-          height: 8px;
+          width: 9px;
+          height: 9px;
           border-radius: 50%;
           background: #71717A;
         }
         .conn-dot.online {
           background: #10B981;
-          box-shadow: 0 0 6px #10B981;
+          box-shadow: 0 0 8px #10B981;
         }
         .btn-conn {
           background: #3F3F46;
           color: #E4E4E7;
           border: 1px solid #52525B;
-          border-radius: 4px;
-          padding: 3px 8px;
-          font-size: 10px;
+          border-radius: 6px;
+          padding: 4px 10px;
+          font-size: 11.5px;
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
@@ -1353,8 +1357,10 @@ class WeekAquaCard extends HTMLElement {
     const modelCode = (attr.model_code || '').trim();
     const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
 
-    let titleStr = friendlyName || customTitle || bleName || 'WeekAqua Light';
-    if (bleName && friendlyName && bleName.toUpperCase() !== friendlyName.toUpperCase() && !friendlyName.toUpperCase().includes(bleName.toUpperCase())) {
+    let titleStr = customTitle || friendlyName || 'WeekAqua Aquarium Light';
+    if (customTitle && friendlyName && customTitle.toUpperCase() !== friendlyName.toUpperCase() && !customTitle.toUpperCase().includes(friendlyName.toUpperCase())) {
+      titleStr = `${customTitle} (${friendlyName})`;
+    } else if (!customTitle && friendlyName && bleName && friendlyName.toUpperCase() !== bleName.toUpperCase()) {
       titleStr = `${friendlyName} (${bleName})`;
     }
     if (titleEl) {
