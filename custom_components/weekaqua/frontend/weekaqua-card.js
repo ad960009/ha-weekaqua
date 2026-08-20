@@ -33,6 +33,7 @@ class WeekAquaCard extends HTMLElement {
     this._config = null;
     this._activeTab = 'live'; // 'live' or 'schedule'
     this._keepMoonlight = true;
+    this._scheduleEnabled = true;
     this._hasLoadedInitialSchedule = false;
     this._scheduleMeta = null;
     this._schedulePoints = [
@@ -301,6 +302,51 @@ class WeekAquaCard extends HTMLElement {
         .preset-btn:hover {
           background: #3F3F46;
           border-color: #60A5FA;
+        /* Schedule Status Header */
+        .sched-status-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #27272A;
+          border: 1px solid #3F3F46;
+          border-radius: 8px;
+          padding: 8px 12px;
+          margin-bottom: 12px;
+        }
+        .sched-status-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .sched-state-badge {
+          font-size: 11px;
+          color: #94A3B8;
+          font-weight: 600;
+        }
+        .sched-state-badge.active {
+          color: #10B981;
+        }
+        .btn-toggle-sched {
+          background: #3F3F46;
+          color: #E4E4E7;
+          border: 1px solid #52525B;
+          border-radius: 6px;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-toggle-sched:hover {
+          background: #52525B;
+        }
+        .btn-toggle-sched.active {
+          background: #7F1D1D;
+          border-color: #EF4444;
+          color: #FCA5A5;
+        }
+        .btn-toggle-sched.active:hover {
+          background: #991B1B;
         }
         /* Schedule Config */
         .sched-config-card {
@@ -533,6 +579,18 @@ class WeekAquaCard extends HTMLElement {
 
         <!-- Tab 2: Unlimited Schedule Editor -->
         <div id="panel-sched" class="sched-wrap">
+          <!-- Dynamic Schedule Enable/Disable Toggle Bar -->
+          <div class="sched-status-bar">
+            <div class="sched-status-left">
+              <span style="font-size: 16px;">📅</span>
+              <div style="display: flex; flex-direction: column; gap: 1px;">
+                <span style="font-size: 12px; font-weight: 700; color: #F4F4F5;">Dynamic Schedule Mode</span>
+                <span class="sched-state-badge active" id="sched-state-badge">🟢 Running (스케줄 가동 중)</span>
+              </div>
+            </div>
+            <button class="btn-toggle-sched active" id="btn-toggle-sched">⏸️ 스케줄 끄기 (수동 모드)</button>
+          </div>
+
           <!-- Start/End Time & Natural Auto Distribute Config -->
           <div class="sched-config-card">
             <div class="sched-config-grid">
@@ -781,8 +839,49 @@ class WeekAquaCard extends HTMLElement {
       this._renderCurve();
     });
 
+    // Schedule: Enable / Disable Toggle Button
+    const btnToggleSched = root.getElementById('btn-toggle-sched');
+    if (btnToggleSched) {
+      btnToggleSched.addEventListener('click', () => {
+        const nextState = !this._scheduleEnabled;
+        this._scheduleEnabled = nextState;
+        this._updateScheduleToggleUI(nextState);
+        if (this._hass) {
+          this._hass.callService('weekaqua', 'set_schedule_enabled', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+            enabled: nextState,
+          });
+        }
+      });
+    }
+
     // Schedule: Save
     root.getElementById('btn-save-sched').addEventListener('click', () => this._saveScheduleToHA());
+  }
+
+  _updateScheduleToggleUI(enabled) {
+    const root = this.shadowRoot;
+    const badge = root.getElementById('sched-state-badge');
+    const btn = root.getElementById('btn-toggle-sched');
+    if (badge) {
+      if (enabled) {
+        badge.textContent = '🟢 Running (스케줄 가동 중)';
+        badge.className = 'sched-state-badge active';
+      } else {
+        badge.textContent = '⚪ Paused (스케줄 꺼짐 / 수동 모드)';
+        badge.className = 'sched-state-badge';
+      }
+    }
+    if (btn) {
+      if (enabled) {
+        btn.textContent = '⏸️ 스케줄 끄기 (수동 모드)';
+        btn.className = 'btn-toggle-sched active';
+      } else {
+        btn.textContent = '▶️ 스케줄 켜기 (자동 실행)';
+        btn.className = 'btn-toggle-sched';
+      }
+    }
   }
 
   _updateGauge() {
@@ -1110,6 +1209,8 @@ class WeekAquaCard extends HTMLElement {
     } catch (e) {}
 
     if (this._hass) {
+      this._scheduleEnabled = true;
+      this._updateScheduleToggleUI(true);
       this._hass.callService('weekaqua', 'set_schedule', {
         device_id: this._config.device_id || '',
         entity_id: this._config.entity || '',
@@ -1235,6 +1336,12 @@ class WeekAquaCard extends HTMLElement {
       if (stateObj.attributes) {
         const attr = stateObj.attributes;
         this._applyModelLayout(attr);
+
+        // Synchronize dynamic schedule running state
+        if (attr.schedule_enabled !== undefined) {
+          this._scheduleEnabled = Boolean(attr.schedule_enabled);
+          this._updateScheduleToggleUI(this._scheduleEnabled);
+        }
 
         // Synchronize and restore schedule points and metadata from HA entity attributes
         if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {

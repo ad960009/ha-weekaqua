@@ -13,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 URL_BASE = "/weekaqua_static"
 CARD_FILENAME = "weekaqua-card.js"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 
 def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:

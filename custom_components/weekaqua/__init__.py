@@ -34,6 +34,13 @@ SERVICE_SET_TIMER = "set_timer"
 SERVICE_SYNC_RTC = "sync_rtc"
 SERVICE_CONNECT = "connect"
 SERVICE_DISCONNECT = "disconnect"
+SERVICE_SET_SCHEDULE_ENABLED = "set_schedule_enabled"
+
+SCHEMA_SET_SCHEDULE_ENABLED = vol.Schema({
+    vol.Optional("device_id"): cv.string,
+    vol.Optional("entity_id"): cv.string,
+    vol.Required("enabled"): cv.boolean,
+})
 
 SCHEMA_APPLY_PRESET = vol.Schema({
     vol.Required("device_id"): cv.string,
@@ -175,6 +182,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for coord in hass.data[DOMAIN].values():
             await coord.async_disconnect()
 
+    async def handle_set_schedule_enabled(call: ServiceCall) -> None:
+        enabled = call.data["enabled"]
+        for coord in hass.data[DOMAIN].values():
+            await coord.async_set_schedule_enabled(enabled)
+
     if not hass.services.has_service(DOMAIN, SERVICE_APPLY_PRESET):
         hass.services.async_register(DOMAIN, SERVICE_APPLY_PRESET, handle_apply_preset, schema=SCHEMA_APPLY_PRESET)
         hass.services.async_register(DOMAIN, SERVICE_SET_SPECTRUM, handle_set_spectrum, schema=SCHEMA_SET_SPECTRUM)
@@ -183,6 +195,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, SERVICE_SYNC_RTC, handle_sync_rtc)
         hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect)
         hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect)
+        hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE_ENABLED, handle_set_schedule_enabled, schema=SCHEMA_SET_SCHEDULE_ENABLED)
 
     return True
 

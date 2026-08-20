@@ -597,8 +597,33 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code
         )
+        self.async_set_updated_data(self._build_data())
 
-        return self._build_data()
+    async def async_set_schedule_enabled(self, enabled: bool) -> None:
+        """Enable or disable dynamic unlimited schedule."""
+        self.schedule_enabled = enabled
+        _LOGGER.info("Dynamic schedule %s for %s", "ENABLED" if enabled else "DISABLED", self.mac)
+        if enabled and self.schedule_points:
+            target = self.calculate_interpolated_spectrum(datetime.now().time())
+            self.current_r = target.r
+            self.current_g = target.g
+            self.current_b = target.b
+            self.current_w = target.w
+            self.current_uv = target.uv
+            self.current_v = target.violet
+            packet = WeekAquaProtocol.build_live_spectrum_packet(
+                self.current_r, self.current_g, self.current_b, self.current_w,
+                self.current_uv, self.current_v, self.model_code,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
+            self._last_sent_spectrum = packet
+            if not self._manual_disconnected:
+                await self.enqueue_packet(packet, is_live_spectrum=True)
+        self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
+            self.current_r, self.current_g, self.current_b, self.current_w,
+            self.current_uv, self.current_v, self.model_code
+        )
+        self.async_set_updated_data(self._build_data())
 
     def _build_data(self) -> dict[str, Any]:
         """Construct dictionary of current state for HA entities."""
