@@ -45,6 +45,13 @@ class TestWeekAquaProtocol(unittest.TestCase):
         total_pwr = WeekAquaProtocol.calculate_total_power_percent(norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet, model_code="5749")
         self.assertLessEqual(total_pwr, 100.0)
 
+    def test_4ch_rgb_uv_fbef_packet(self):
+        # 4-Channel RGB/UV (e.g. M800 Pro / 5746) uses FBEF
+        packet = WeekAquaProtocol.build_live_spectrum_packet(50, 60, 70, 0, uv_pct=30, model_code="5746", is_4ch_rgb_uv=True)
+        self.assertEqual(packet[0], 0xFB)
+        self.assertEqual(packet[1], 0xEF)
+        self.assertEqual(len(packet), 8)
+
     def test_rounding_edge_case_not_exceeding_100(self):
         # Test various peak configurations across models
         for model in ["", "5746", "5748", "5749", "5751", "5752"]:

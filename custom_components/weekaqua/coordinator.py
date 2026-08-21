@@ -46,15 +46,21 @@ def describe_packet(packet: bytes) -> str:
     if not packet or len(packet) < 2:
         return "Unknown Packet"
     p0, p1 = packet[0], packet[1]
-    if len(packet) == 8 and p0 == 0xFB and p1 == 0xF9:
-        r, g, b, w, uv = packet[2], packet[3], packet[4], packet[5], packet[6]
-        return f"SetSpectrum (R:{r}% G:{g}% B:{b}% W:{w}% UV:{uv}%)"
+    if len(packet) >= 8 and p0 == 0xFB and p1 in (0xF9, 0xEF):
+        r = round(WeekAquaProtocol.byte_to_percent(packet[2]))
+        g = round(WeekAquaProtocol.byte_to_percent(packet[3]))
+        b = round(WeekAquaProtocol.byte_to_percent(packet[4]))
+        ch4 = round(WeekAquaProtocol.byte_to_percent(packet[5]))
+        hdr = "FBEF" if p1 == 0xEF else "FBF9"
+        return f"SetSpectrum [{hdr}] (R:{r}% G:{g}% B:{b}% CH4:{ch4}%)"
     if p0 == 0xFF:
         return "Sync RTC Time (0xFF)"
     if p0 == 0xFD:
         return f"Set Mode ({p1})"
     if p0 == 0xFC:
         return f"Set Preset Curve ({p1})"
+    if p0 == 0xF6:
+        return f"Timer Switch (0xF6 0x{p1:02X})"
     if p0 == 0xFA:
         return "Query Device Info (0xFA)"
     if p0 in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C):
@@ -517,15 +523,15 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         desc = describe_packet(packet)
 
         if is_live_spectrum:
-            # 큐 안에 이미 대기 중인 패킷 중 실시간 스펙트럼(0xFB 0xF9) 패킷이 있으면 비워줌
+            # 큐 안에 이미 대기 중인 패킷 중 실시간 스펙트럼(0xFB 0xF9 또는 0xFB 0xEF) 패킷이 있으면 비워줌
             # (최신 스펙트럼 1개만 전송되도록 보장)
             temp_list = []
             while not self._write_queue.empty():
                 try:
                     p = self._write_queue.get_nowait()
                     self._write_queue.task_done()
-                    # 실시간 스펙트럼 패킷(FB F9)이 아닌 필수 제어 패킷(RTC 동기화 FF, 모드 설정 FD 등)만 보존
-                    if not (len(p) == 8 and p[0] == 0xFB and p[1] == 0xF9):
+                    # 실시간 스펙트럼 패킷(FB F9 / FB EF)이 아닌 필수 제어 패킷(RTC 동기화 FF, 모드 설정 FD 등)만 보존
+                    if not (len(p) >= 8 and p[0] == 0xFB and p[1] in (0xF9, 0xEF)):
                         temp_list.append(p)
                     else:
                         self._add_log("DEDUP", f"Replaced stale spectrum packet in queue ({describe_packet(p)})", hex_str=p.hex(), level="warn")
@@ -555,6 +561,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         [핵심 개선 1] 락 격리 및 데드락이 없는 순차적 GATT 송신 워커.
         - _ensure_connected()를 락 내부에서 호출하지 않고 별도 실행하여 데드락을 원천 차단.
+        - 대기 중인 패킷이 있을 경우 강제 재연결(force=True)을 통해 offline SKIP을 방지.
         - 패킷 송신 시에만 _write_lock을 점유하여 안전한 500ms 페이싱 전송 보장 (MCU 버퍼 오버런 방지).
         """
         while True:
@@ -563,8 +570,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             desc = describe_packet(packet)
             self._add_log("DEQUEUE", f"Dequeued for BLE TX: {desc}", hex_str=hex_s, level="info")
             try:
-                # 1. 연결 확인 (연결 전용 로직은 _connect_lock이 담당하므로 워커 데드락 없음)
-                connected = await self._ensure_connected()
+                # 1. 연결 확인 (대기 중인 패킷이 있으므로 자동 재연결)
+                connected = await self._ensure_connected(force=True)
                 if connected and self._client and self._client.is_connected and self._write_char_uuid:
                     # 2. Zero-Latency RTC Sync: 0xFF 패킷은 송신 직전의 현재 시각으로 재생성
                     if len(packet) == 8 and packet[0] == 0xFF:
@@ -782,6 +789,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         disable_schedule: bool = True
     ) -> None:
         """Set manual spectrum immediately."""
+        self._manual_disconnected = False
         if disable_schedule:
             self.schedule_enabled = False
 
@@ -804,6 +812,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_fan_speed(self, fan_pct: float) -> None:
         """Set fan speed (0.0 ~ 100.0%)."""
+        self._manual_disconnected = False
         self.current_fan = max(0.0, min(100.0, float(fan_pct)))
         packet = WeekAquaProtocol.build_fan_speed_packet(self.current_fan)
         await self.enqueue_packet(packet)
@@ -815,6 +824,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         meta: dict[str, Any] | None = None
     ) -> None:
         """Update unlimited schedule waypoints and metadata, then persist and re-evaluate immediately."""
+        self._manual_disconnected = False
         self.schedule_points = points
         if meta:
             self.schedule_meta = {**self.schedule_meta, **{k: v for k, v in meta.items() if v is not None}}
@@ -911,6 +921,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_schedule_enabled(self, enabled: bool) -> None:
         """Toggle dynamic schedule on or off."""
+        self._manual_disconnected = False
         self.schedule_enabled = enabled
         if enabled:
             await self.async_refresh()

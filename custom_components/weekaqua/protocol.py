@@ -167,10 +167,10 @@ class WeekAquaProtocol:
         uv = cls.percent_to_byte(norm.uv)
         v = cls.percent_to_byte(norm.violet)
 
-        # 4-Channel RGB/UV (e.g. M800 Pro, M-Series, S-Series, T90, Model 5746)
+        # 4-Channel RGB/UV (e.g. M800 Pro, M-Series, S-Series, T90, Model 5746 - StringOneTools)
         if is_4ch_rgb_uv or model_code == "5746":
             ch4 = uv if uv > 0 else w
-            return bytes([0xFB, 0xF9, r, g, b, ch4, 0x55, 0x55])
+            return bytes([0xFB, 0xEF, r, g, b, ch4, 0x55, 0x55])
 
         if v > 0 or model_code in ("5749", "5750", "5751", "5752"):
             return bytes([0xFB, 0xF9, r, g, b, w, uv, v, 0x55, 0x55])
