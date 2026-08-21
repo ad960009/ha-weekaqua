@@ -709,7 +709,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # 1. 일일 자동 RTC 동기화 (하루 1회 자정에 실행)
         if self._last_rtc_sync_date != now.date():
             self._last_rtc_sync_date = now.date()
-            if self.is_connected:
+            if not self._manual_disconnected:
                 _LOGGER.info(
                     "Performing daily automatic RTC clock sync for WeekAqua (%s) at %s",
                     self.mac,
@@ -741,9 +741,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
 
-            # 사용자가 수동으로 연결을 해제하지 않았고 스펙트럼이 실제로 변경되었을 때만 큐에 전송
+            # 사용자가 수동으로 연결을 해제하지 않았고 스펙트럼이 실제로 변경되었을 때만 큐에 전송 (워커가 자동 재연결 수행)
             if not self._manual_disconnected:
-                if packet != self._last_sent_spectrum and self.is_connected:
+                if packet != self._last_sent_spectrum:
                     self._last_sent_spectrum = packet
                     await self.enqueue_packet(packet, is_live_spectrum=True)
 
