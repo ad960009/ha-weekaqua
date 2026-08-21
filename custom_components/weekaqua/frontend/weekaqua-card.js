@@ -1026,7 +1026,7 @@ class WeekAquaCard extends HTMLElement {
     if (btnLogClear) {
       btnLogClear.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._userClearedLogs = true;
+        this._clearedLogId = this._maxLogId || 1;
         this._renderLogs([]);
       });
     }
@@ -1517,11 +1517,17 @@ class WeekAquaCard extends HTMLElement {
     const modelCode = (attr.model_code || '').trim();
     const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
 
-    let titleStr = customTitle || friendlyName || 'WeekAqua Aquarium Light';
-    if (customTitle && friendlyName && customTitle.toUpperCase() !== friendlyName.toUpperCase() && !customTitle.toUpperCase().includes(friendlyName.toUpperCase())) {
-      titleStr = `${customTitle} (${friendlyName})`;
-    } else if (!customTitle && friendlyName && bleName && friendlyName.toUpperCase() !== bleName.toUpperCase()) {
-      titleStr = `${friendlyName} (${bleName})`;
+    // Strip redundant "Aquarium Light" or "Light" from parenthetical friendly tag
+    let cleanFriendly = (friendlyName || '')
+      .replace(/\s*Aquarium\s*Light/ig, '')
+      .replace(/\s*Light/ig, '')
+      .trim();
+    if (!cleanFriendly) cleanFriendly = friendlyName;
+
+    const baseTitle = customTitle || 'WeekAqua Aquarium Light';
+    let titleStr = baseTitle;
+    if (cleanFriendly && !baseTitle.toUpperCase().includes(cleanFriendly.toUpperCase())) {
+      titleStr = `${baseTitle} (${cleanFriendly})`;
     }
     if (titleEl) {
       titleEl.textContent = titleStr;
@@ -1639,9 +1645,15 @@ class WeekAquaCard extends HTMLElement {
           }
 
           if (attr.ble_logs && Array.isArray(attr.ble_logs)) {
-            if (!this._userClearedLogs) {
-              this._renderLogs(attr.ble_logs);
+            const logs = attr.ble_logs;
+            if (logs.length > 0) {
+              const latestId = logs[logs.length - 1].id || 0;
+              this._maxLogId = Math.max(this._maxLogId || 0, latestId);
             }
+            const visibleLogs = this._clearedLogId
+              ? logs.filter((l) => (l.id !== undefined ? l.id > this._clearedLogId : true))
+              : logs;
+            this._renderLogs(visibleLogs);
           }
         }
       }
@@ -1655,8 +1667,8 @@ class WeekAquaCard extends HTMLElement {
     if (!consoleEl) return;
 
     if (!logs || logs.length === 0) {
-      if (this._userClearedLogs) {
-        consoleEl.innerHTML = '<div style="color: #64748B; padding: 4px 0;">Logs cleared by user.</div>';
+      if (this._clearedLogId) {
+        consoleEl.innerHTML = '<div style="color: #64748B; padding: 4px 0;">Logs cleared. Waiting for new BLE packets...</div>';
       } else {
         consoleEl.innerHTML = '<div style="color: #64748B; padding: 4px 0;">No BLE packet activity logged yet.</div>';
       }

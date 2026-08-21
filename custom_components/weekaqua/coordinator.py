@@ -160,6 +160,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # [실시간 패킷 모니터링] 링 버퍼 로그 (최근 60건)
         self.ble_logs: deque[dict[str, Any]] = deque(maxlen=60)
+        self._log_seq: int = 0
 
         super().__init__(
             hass,
@@ -170,10 +171,12 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _add_log(self, event: str, msg: str, hex_str: str = "", level: str = "info") -> None:
         """Add a structured log event for frontend packet monitoring."""
+        self._log_seq += 1
         now = datetime.now()
         ts = now.strftime("%H:%M:%S") + f".{int(now.microsecond / 1000):03d}"
         q_size = self._write_queue.qsize()
         log_entry = {
+            "id": self._log_seq,
             "ts": ts,
             "event": event,
             "msg": msg,
