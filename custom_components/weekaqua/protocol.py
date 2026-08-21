@@ -208,18 +208,26 @@ class WeekAquaProtocol:
         return bytes([0xFD, sub, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55])
 
     @classmethod
-    def build_live_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:
+    def build_live_mode_sequence(cls, spectrum_packet: bytes | None = None, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:
         """Return the sequence of mode transition packets required before sending live manual spectrum.
-        Sets 24-hour full day timer window (FEF9 00:00~24:00) so Mode 1 stays active 24/7,
-        and switches MCU to Mode 1 (FDF1).
-        Preserves Mode 2 hardware schedule memory (FEF1~FEF8) completely untouched.
+        Enforces exact order: FDF1 (Mode1) -> Spectrum -> FEEF (Timer) -> FEF9 (Timer)
         """
-        return [
-            # 1. Open 24h timer window (00:00 ~ 24:00, Enabled, Ramp 0h)
-            bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]),
-            # 2. Switch MCU to Mode 1 (Live Spectrum Output)
+        seq = [
+            # 1. Switch MCU to Mode 1 (Live Spectrum Output)
             bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
         ]
+        
+        # 2. Insert target spectrum if provided
+        if spectrum_packet:
+            seq.append(spectrum_packet)
+            
+        seq.extend([
+            # 3. Open 24h timer window for 5746/M-series (FEEF 00:00 ~ 24:00)
+            bytes([0xFE, 0xEF, 0x00, 0x00, 0x24, 0x00, 0x55, 0x55]),
+            # 4. Open 24h timer window (00:00 ~ 24:00, Enabled, Ramp 0h)
+            bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]),
+        ])
+        return seq
 
     @classmethod
     def build_schedule_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:

@@ -370,6 +370,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     use_services_cache=True,
                 )
                 self.is_connected = True
+                self._current_mode = 0  # Force state reset on connect to avoid mode desync
+                self._last_sent_spectrum = None
                 _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
                 self._add_log("CONNECT_OK", f"Connected to {self.device_name} ({self.mac})", level="success")
 
@@ -523,6 +525,20 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_disconnect()
         except asyncio.CancelledError:
             pass
+
+    async def _send_live_spectrum_with_mode(self, packet: bytes, force_mode: bool = False) -> None:
+        if not self.is_connected or self._current_mode != 1 or force_mode:
+            self._current_mode = 1
+            # 1. Mode 1 Transition
+            await self.enqueue_packet(bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
+            # 2. Live Spectrum
+            await self.enqueue_packet(packet, is_live_spectrum=True)
+            # 3. Open Timers
+            await self.enqueue_packet(bytes([0xFE, 0xEF, 0x00, 0x00, 0x24, 0x00, 0x55, 0x55]))
+            await self.enqueue_packet(bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]))
+        else:
+            await self.enqueue_packet(packet, is_live_spectrum=True)
+
 
     async def enqueue_packet(self, packet: bytes, is_live_spectrum: bool = False) -> None:
         """
@@ -727,13 +743,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
-            # HA 재시작 또는 모드 복귀 시 24시간 개방 시퀀스 선행 송신
-            if self._current_mode != 1 and not self._manual_disconnected:
-                self._current_mode = 1
-                for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-                    is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-                ):
-                    await self.enqueue_packet(mode_pkt)
+            force_send = False
+            if not self._manual_disconnected and (not self.is_connected or self._current_mode != 1):
+                force_send = True
 
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
@@ -741,11 +753,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
 
-            # 사용자가 수동으로 연결을 해제하지 않았고 스펙트럼이 실제로 변경되었을 때만 큐에 전송 (워커가 자동 재연결 수행)
             if not self._manual_disconnected:
-                if packet != self._last_sent_spectrum:
+                if force_send or packet != self._last_sent_spectrum:
                     self._last_sent_spectrum = packet
-                    await self.enqueue_packet(packet, is_live_spectrum=True)
+                    await self._send_live_spectrum_with_mode(packet, force_mode=force_send)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
@@ -766,13 +777,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
-            if self._current_mode != 1:
-                self._current_mode = 1
-                for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-                    is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-                ):
-                    await self.enqueue_packet(mode_pkt)
-
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
                 self.current_uv, self.current_v, self.model_code,
@@ -780,7 +784,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._last_sent_spectrum = packet
             if not self._manual_disconnected:
-                await self.enqueue_packet(packet, is_live_spectrum=True)
+                await self._send_live_spectrum_with_mode(packet)
         if self._entry:
             try:
                 new_data = {
@@ -875,20 +879,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.current_uv = target.uv
                 self.current_v = target.violet
 
-                if self._current_mode != 1:
-                    self._current_mode = 1
-                    for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-                        is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-                    ):
-                        await self.enqueue_packet(mode_pkt)
-
                 packet = WeekAquaProtocol.build_live_spectrum_packet(
                     self.current_r, self.current_g, self.current_b, self.current_w,
                     self.current_uv, self.current_v, self.model_code,
                     is_4ch_rgb_uv=self._is_4ch_rgb_uv()
                 )
                 self._last_sent_spectrum = packet
-                await self.enqueue_packet(packet, is_live_spectrum=True)
+                await self._send_live_spectrum_with_mode(packet)
         else:
             # Direct manual moonlight control
             target_b = float(self.moonlight_brightness) if enabled else 0.0
@@ -914,20 +911,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.current_uv = target.uv
                     self.current_v = target.violet
 
-                    if self._current_mode != 1:
-                        self._current_mode = 1
-                        for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-                            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-                        ):
-                            await self.enqueue_packet(mode_pkt)
-
                     packet = WeekAquaProtocol.build_live_spectrum_packet(
                         self.current_r, self.current_g, self.current_b, self.current_w,
                         self.current_uv, self.current_v, self.model_code,
                         is_4ch_rgb_uv=self._is_4ch_rgb_uv()
                     )
                     self._last_sent_spectrum = packet
-                    await self.enqueue_packet(packet, is_live_spectrum=True)
+                    await self._send_live_spectrum_with_mode(packet)
             else:
                 await self.async_set_spectrum(0.0, 0.0, self.moonlight_brightness, 0.0, 0.0, 0.0, disable_schedule=False)
 
@@ -959,21 +949,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_uv = norm.uv
         self.current_v = norm.violet
 
-        # [모드 전환 필수 패킷] 스케줄 모드(Mode 2)에서 수동 실시간 모드로 전환 시 Mode 1 시퀀스 선행 송신
-        if self._current_mode != 1:
-            self._current_mode = 1
-            for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-                is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-            ):
-                await self.enqueue_packet(mode_pkt)
-
         packet = WeekAquaProtocol.build_live_spectrum_packet(
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code,
             is_4ch_rgb_uv=self._is_4ch_rgb_uv()
         )
         self._last_sent_spectrum = packet
-        await self.enqueue_packet(packet, is_live_spectrum=True)
+        await self._send_live_spectrum_with_mode(packet)
         self._persist_state()
         self.async_set_updated_data(self._build_data())
 
@@ -1029,7 +1011,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # 1. Transmit Mode 1 unlock sequence (FEF9 24h + FDF1)
         for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+            spectrum_packet=None, is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
         ):
             await self.enqueue_packet(mode_pkt)
 
