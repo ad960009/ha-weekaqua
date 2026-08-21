@@ -581,6 +581,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             self._write_queue.put_nowait(packet)
             self._add_log("ENQUEUE", f"Enqueued: {desc}", hex_str=hex_s, level="info")
+            self._reset_inactivity_timer()
         except asyncio.QueueFull:
             self._add_log("QUEUE_ERR", "Failed to enqueue packet: Queue full", hex_str=hex_s, level="error")
 
