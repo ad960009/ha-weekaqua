@@ -778,6 +778,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule_enabled": self.schedule_enabled,
             "schedule_points": self.schedule_points,
             "schedule_meta": self.schedule_meta,
+            "current_mode": self._current_mode,
+            "mode_name": "Schedule (Mode 2)" if self._current_mode == 2 else "Live (Mode 1)",
             "ble_logs": list(self.ble_logs),
             "queue_size": self._write_queue.qsize(),
         }
@@ -858,6 +860,48 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.async_set_updated_data(self._build_data())
         await self.async_refresh()
+
+    async def async_activate_schedule_mode(self) -> None:
+        """Switch MCU hardware mode to Mode 2 (Hardware Ramp Schedule Mode) without changing stored schedule slots."""
+        self._manual_disconnected = False
+        self.schedule_enabled = False
+        self._current_mode = 2
+
+        # 1. Sync RTC Clock so MCU has exact current time
+        await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(datetime.now()))
+
+        # 2. Transmit Mode 2 activation sequence (FDF3 + FDF2 or FDF2)
+        for mode_pkt in WeekAquaProtocol.build_schedule_mode_sequence(
+            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+        ):
+            await self.enqueue_packet(mode_pkt)
+
+        self._add_log("SET_MODE", "Switched to Hardware Schedule Mode (Mode 2 / FDF2)", level="info")
+        self.async_set_updated_data(self._build_data())
+
+    async def async_activate_live_mode(self) -> None:
+        """Switch MCU hardware mode to Mode 1 (Manual Live Spectrum Mode) and output current live spectrum."""
+        self._manual_disconnected = False
+        self.schedule_enabled = False
+        self._current_mode = 1
+
+        # 1. Transmit Mode 1 unlock sequence (FDF1, FDF4, FEEF, F6F2)
+        for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+        ):
+            await self.enqueue_packet(mode_pkt)
+
+        # 2. Transmit current live manual spectrum
+        packet = WeekAquaProtocol.build_live_spectrum_packet(
+            self.current_r, self.current_g, self.current_b, self.current_w,
+            self.current_uv, self.current_v, self.model_code,
+            is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+        )
+        self._last_sent_spectrum = packet
+        await self.enqueue_packet(packet, is_live_spectrum=True)
+
+        self._add_log("SET_MODE", "Switched to Manual Live Spectrum Mode (Mode 1 / FDF1)", level="info")
+        self.async_set_updated_data(self._build_data())
 
     async def async_set_hardware_timer(
         self,

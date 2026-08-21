@@ -35,6 +35,8 @@ SERVICE_SYNC_RTC = "sync_rtc"
 SERVICE_CONNECT = "connect"
 SERVICE_DISCONNECT = "disconnect"
 SERVICE_SET_SCHEDULE_ENABLED = "set_schedule_enabled"
+SERVICE_ACTIVATE_SCHEDULE_MODE = "activate_schedule_mode"
+SERVICE_ACTIVATE_LIVE_MODE = "activate_live_mode"
 
 SCHEMA_COMMON_TARGET = {
     vol.Optional("device_id"): cv.string,
@@ -227,6 +229,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for coord in _get_target_coordinators(hass, call):
             await coord.async_set_schedule_enabled(enabled)
 
+    async def handle_activate_schedule_mode(call: ServiceCall) -> None:
+        for coord in _get_target_coordinators(hass, call):
+            await coord.async_activate_schedule_mode()
+
+    async def handle_activate_live_mode(call: ServiceCall) -> None:
+        for coord in _get_target_coordinators(hass, call):
+            await coord.async_activate_live_mode()
+
     if not hass.services.has_service(DOMAIN, SERVICE_APPLY_PRESET):
         hass.services.async_register(DOMAIN, SERVICE_APPLY_PRESET, handle_apply_preset, schema=SCHEMA_APPLY_PRESET)
         hass.services.async_register(DOMAIN, SERVICE_SET_SPECTRUM, handle_set_spectrum, schema=SCHEMA_SET_SPECTRUM)
@@ -236,6 +246,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, SERVICE_CONNECT, handle_connect, schema=SCHEMA_TARGET_ONLY)
         hass.services.async_register(DOMAIN, SERVICE_DISCONNECT, handle_disconnect, schema=SCHEMA_TARGET_ONLY)
         hass.services.async_register(DOMAIN, SERVICE_SET_SCHEDULE_ENABLED, handle_set_schedule_enabled, schema=SCHEMA_SET_SCHEDULE_ENABLED)
+        hass.services.async_register(DOMAIN, SERVICE_ACTIVATE_SCHEDULE_MODE, handle_activate_schedule_mode, schema=SCHEMA_TARGET_ONLY)
+        hass.services.async_register(DOMAIN, SERVICE_ACTIVATE_LIVE_MODE, handle_activate_live_mode, schema=SCHEMA_TARGET_ONLY)
 
     return True
 

@@ -218,6 +218,60 @@ class WeekAquaCard extends HTMLElement {
           padding: 3px;
           border-radius: 8px;
         }
+        /* Hardware Mode Bar */
+        .mode-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          background: rgba(24, 24, 27, 0.75);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 8px;
+          margin-bottom: 12px;
+        }
+        .mode-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .mode-badge {
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 4px;
+          display: inline-block;
+        }
+        .mode-badge.live {
+          background: rgba(239, 68, 68, 0.2);
+          color: #F87171;
+          border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        .mode-badge.sched {
+          background: rgba(16, 185, 129, 0.2);
+          color: #34D399;
+          border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+        .btn-mode {
+          background: #27272A;
+          color: #A1A1AA;
+          border: 1px solid #3F3F46;
+          border-radius: 6px;
+          padding: 5px 11px;
+          font-size: 11.5px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-mode:hover {
+          background: #3F3F46;
+          color: #FFFFFF;
+        }
+        .btn-mode.active {
+          background: #2563EB;
+          color: #FFFFFF;
+          border-color: #3B82F6;
+          box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+        }
         .tab-btn {
           background: transparent;
           border: none;
@@ -640,6 +694,21 @@ class WeekAquaCard extends HTMLElement {
           </div>
         </div>
 
+        <!-- Hardware Mode Switch (Live Mode 1 <-> Schedule Mode 2) -->
+        <div class="mode-bar">
+          <div class="mode-left">
+            <span style="font-size: 15px;">🎛️</span>
+            <div style="display: flex; flex-direction: column; gap: 1px;">
+              <span style="font-size: 11px; color: #94A3B8; font-weight: 600;">Operation Mode</span>
+              <span class="mode-badge live" id="mode-status-badge">🔴 Live Manual (Mode 1)</span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn-mode active" id="btn-mode-live">🎨 Live Mode</button>
+            <button class="btn-mode" id="btn-mode-sched">📅 Schedule Mode</button>
+          </div>
+        </div>
+
         <!-- Tab 1: Live Manual Controls -->
         <div id="panel-live">
           <div class="slider-group" id="sliders-container">
@@ -896,6 +965,34 @@ class WeekAquaCard extends HTMLElement {
       this._renderCurve();
     });
 
+    // Operation Mode Switching (Live Mode 1 <-> Schedule Mode 2)
+    const btnModeLive = root.getElementById('btn-mode-live');
+    const btnModeSched = root.getElementById('btn-mode-sched');
+    if (btnModeLive) {
+      btnModeLive.addEventListener('click', () => {
+        this._updateModeUI(1);
+        if (this._hass) {
+          this._hass.callService('weekaqua', 'activate_live_mode', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+          });
+        }
+        this._setConnectionStatus(true);
+      });
+    }
+    if (btnModeSched) {
+      btnModeSched.addEventListener('click', () => {
+        this._updateModeUI(2);
+        if (this._hass) {
+          this._hass.callService('weekaqua', 'activate_schedule_mode', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+          });
+        }
+        this._setConnectionStatus(true);
+      });
+    }
+
     // Manual Connect / Disconnect buttons
     root.getElementById('btn-manual-conn').addEventListener('click', () => {
       if (this._hass) {
@@ -1087,6 +1184,30 @@ class WeekAquaCard extends HTMLElement {
     }
   }
 
+  _updateModeUI(mode) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const badge = root.getElementById('mode-status-badge');
+    const btnLive = root.getElementById('btn-mode-live');
+    const btnSched = root.getElementById('btn-mode-sched');
+
+    if (mode === 2) {
+      if (badge) {
+        badge.textContent = '🟢 Schedule (Mode 2)';
+        badge.className = 'mode-badge sched';
+      }
+      if (btnLive) btnLive.className = 'btn-mode';
+      if (btnSched) btnSched.className = 'btn-mode active';
+    } else {
+      if (badge) {
+        badge.textContent = '🔴 Live Manual (Mode 1)';
+        badge.className = 'mode-badge live';
+      }
+      if (btnLive) btnLive.className = 'btn-mode active';
+      if (btnSched) btnSched.className = 'btn-mode';
+    }
+  }
+
   _updateScheduleToggleUI(enabled) {
     const root = this.shadowRoot;
     const badge = root.getElementById('sched-state-badge');
@@ -1126,6 +1247,7 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _sendLiveSpectrum() {
+    this._updateModeUI(1);
     const root = this.shadowRoot;
     const r = parseFloat(root.getElementById('sl-r').value) || 0;
     const g = parseFloat(root.getElementById('sl-g').value) || 0;
@@ -1183,6 +1305,7 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _applyPreset(presetName) {
+    this._updateModeUI(1);
     const spec = this._getPresetSpectrum(presetName);
     this._setSliderValues(spec.r, spec.g, spec.b, spec.w, spec.uv, spec.v);
     if (this._hass) {
@@ -1672,6 +1795,11 @@ class WeekAquaCard extends HTMLElement {
       if (stateObj.attributes) {
         const attr = stateObj.attributes;
         this._applyModelLayout(attr);
+
+        // Synchronize hardware operation mode (Mode 1 Live vs Mode 2 Schedule)
+        if (attr.current_mode !== undefined) {
+          this._updateModeUI(attr.current_mode);
+        }
 
         // Synchronize dynamic schedule running state
         if (attr.schedule_enabled !== undefined) {
