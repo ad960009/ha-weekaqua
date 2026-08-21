@@ -11,7 +11,7 @@ from homeassistant import config_entries
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak, async_discovered_service_info
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, SERVICE_UUID, CONF_MAC, CONF_NAME, CONF_MODEL_CODE, DEFAULT_NAME
+from .const import DOMAIN, SERVICE_UUID, CONF_MAC, CONF_NAME, CONF_MODEL_CODE, DEFAULT_NAME, MODEL_NAMES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +82,15 @@ class WeekAquaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
-        self.context["title_placeholders"] = {"name": discovery_info.name}
+        mac_clean = discovery_info.address.replace(":", "").upper()
+        _, model_code = is_matching_weekaqua(discovery_info)
+        raw_name = (discovery_info.name or "").strip()
+        if not raw_name or raw_name.replace(":", "").upper() == mac_clean:
+            pretty_name = f"WeekAqua {MODEL_NAMES.get(model_code, 'Light')}"
+        else:
+            pretty_name = raw_name
+
+        self.context["title_placeholders"] = {"name": pretty_name}
         self._discovery_info = discovery_info
         return await self.async_step_bluetooth_confirm()
 
@@ -90,23 +98,29 @@ class WeekAquaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Confirm discovery of a WeekAqua device."""
         assert self._discovery_info is not None
 
+        _, model_code = is_matching_weekaqua(self._discovery_info)
+        mac_clean = self._discovery_info.address.replace(":", "").upper()
+        raw_name = (self._discovery_info.name or "").strip()
+        if not raw_name or raw_name.replace(":", "").upper() == mac_clean:
+            pretty_name = f"WeekAqua {MODEL_NAMES.get(model_code, 'Light')}"
+        else:
+            pretty_name = raw_name
+
         if user_input is not None:
-            _, model_code = is_matching_weekaqua(self._discovery_info)
             return self.async_create_entry(
-                title=user_input.get(CONF_NAME, self._discovery_info.name or DEFAULT_NAME),
+                title=user_input.get(CONF_NAME, pretty_name),
                 data={
                     CONF_MAC: self._discovery_info.address,
-                    CONF_NAME: user_input.get(CONF_NAME, self._discovery_info.name or DEFAULT_NAME),
+                    CONF_NAME: user_input.get(CONF_NAME, pretty_name),
                     CONF_MODEL_CODE: model_code,
                 },
             )
 
-        name = self._discovery_info.name or DEFAULT_NAME
         return self.async_show_form(
             step_id="bluetooth_confirm",
-            description_placeholders={"name": name, "address": self._discovery_info.address},
+            description_placeholders={"name": pretty_name, "address": self._discovery_info.address},
             data_schema=vol.Schema({
-                vol.Optional(CONF_NAME, default=name): str,
+                vol.Optional(CONF_NAME, default=pretty_name): str,
             }),
         )
 
@@ -155,7 +169,12 @@ class WeekAquaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for service_info in scanned_infos:
             is_match, model = is_matching_weekaqua(service_info)
             if is_match:
-                name_part = service_info.name or "WeekAqua Light"
+                mac_clean = service_info.address.replace(":", "").upper()
+                raw_name = (service_info.name or "").strip()
+                if not raw_name or raw_name.replace(":", "").upper() == mac_clean:
+                    name_part = f"WeekAqua {MODEL_NAMES.get(model, 'Light')}"
+                else:
+                    name_part = raw_name
                 rssi_str = f" [RSSI: {service_info.rssi}dBm]" if service_info.rssi is not None else ""
                 display_label = f"{name_part} ({service_info.address}){rssi_str}"
                 self._discovered_devices[service_info.address] = display_label

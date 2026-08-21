@@ -52,6 +52,17 @@ MODEL_5750 = "5750"  # Smart Plug Power Meter
 MODEL_5751 = "5751"  # Mode 8 (7+ CH Advanced 8-Slot)
 MODEL_5752 = "5752"  # Mode 9 (7+ CH Advanced 12-Slot)
 
+MODEL_NAMES = {
+    MODEL_5745: "M800 Pro (4CH Legacy)",
+    MODEL_5746: "M/S Series (4CH StringOne)",
+    MODEL_5747: "A/T Series (RGBW 12-Slot)",
+    MODEL_5748: "Z/P Series (5CH UV)",
+    MODEL_5749: "Marine/Coral (6CH Violet)",
+    MODEL_5750: "Smart Plug (SP01)",
+    MODEL_5751: "6-Channel Pro (8-Slot)",
+    MODEL_5752: "10-Channel Pro (12-Slot)",
+}
+
 # Spectrum Presets: (R, G, B, W, UV, Violet) in percentages (0.0 ~ 100.0) matching C# WeekAquaProtocol.Presets
 PRESETS = {
     "GreenGrass": {

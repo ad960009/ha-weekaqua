@@ -50,9 +50,9 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.mac)},
             connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
-            name=self.coordinator.device_name,
+            name=self.coordinator.display_name,
             manufacturer="WeekAqua",
-            model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
+            model=self.coordinator.model_name,
         )
 
     @property

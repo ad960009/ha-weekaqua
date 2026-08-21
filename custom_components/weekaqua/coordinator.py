@@ -35,6 +35,7 @@ from .const import (
     CONF_SCHEDULE,
     CONF_SCHEDULE_INTERVAL,
     DEFAULT_SCHEDULE_INTERVAL,
+    MODEL_NAMES,
 )
 from .protocol import WeekAquaProtocol, NormalizedSpectrum
 
@@ -221,13 +222,27 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def ble_name(self) -> str:
         """Return the raw Bluetooth advertised LocalName (e.g. B3.0-M800pro-18)."""
+        mac_clean = self.mac.replace(":", "").upper()
         service_info = bluetooth.async_last_service_info(self.hass, self.mac, connectable=True)
-        if service_info and service_info.name:
+        if service_info and service_info.name and service_info.name.replace(":", "").upper() != mac_clean:
             return service_info.name
         ble_dev = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
-        if ble_dev and ble_dev.name:
+        if ble_dev and ble_dev.name and ble_dev.name.replace(":", "").upper() != mac_clean:
             return ble_dev.name
+        if self.model_code and self.model_code in MODEL_NAMES:
+            return f"WeekAqua {MODEL_NAMES[self.model_code]}"
+        if self._is_4ch_rgb_uv():
+            return "WeekAqua M800 Pro (4CH Legacy)"
         return self.device_name or "WeekAqua Light"
+
+    @property
+    def model_name(self) -> str:
+        """Return human-readable model name (e.g. WeekAqua M800 Pro (4CH Legacy))."""
+        if self.model_code and self.model_code in MODEL_NAMES:
+            return f"WeekAqua {MODEL_NAMES[self.model_code]}"
+        if self._is_4ch_rgb_uv():
+            return "WeekAqua M800 Pro (4CH Legacy)"
+        return f"WeekAqua ({self.model_code or 'BLE Light'})"
 
     @property
     def display_name(self) -> str:
@@ -238,7 +253,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if device and device.name_by_user:
                 return device.name_by_user
         ble = self.ble_name
-        if ble and ble not in ("WeekAqua Light", "WeekAqua"):
+        mac_clean = self.mac.replace(":", "").upper()
+        if ble and ble not in ("WeekAqua Light", "WeekAqua") and ble.replace(":", "").upper() != mac_clean:
             return ble
         if self._entry and self._entry.title and self._entry.title not in ("WeekAqua Light", "WeekAqua"):
             return self._entry.title
@@ -444,8 +460,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if device:
                         dev_reg.async_update_device(
                             device_id=device.id,
-                            name=self.device_name,
-                            model=f"WeekAqua ({self.model_code or 'BLE'})",
+                            name=self.display_name,
+                            model=self.model_name,
                             merge_connections={(dr.CONNECTION_BLUETOOTH, self.mac)},
                         )
                 except Exception as reg_err:
