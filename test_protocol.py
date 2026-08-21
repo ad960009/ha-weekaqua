@@ -81,6 +81,10 @@ class TestWeekAquaProtocol(unittest.TestCase):
         packet = WeekAquaProtocol.build_sunrise_sunset_packet(8, 0, 18, 0, ramp_idx=2)
         self.assertEqual(packet.hex().upper(), "FEF9080018000102")
 
+    def test_mode1_timer_packet(self):
+        packet = WeekAquaProtocol.build_mode1_timer_packet(8, 0, 18, 0)
+        self.assertEqual(packet.hex().upper(), "FEEF080018005555")
+
     def test_split_cross_midnight_timer(self):
         # 18:00 to 02:00 crosses midnight -> 2 intervals (18:00~24:00 and 00:00~02:00)
         intervals = WeekAquaProtocol.split_cross_midnight_timer(18, 0, 2, 0)

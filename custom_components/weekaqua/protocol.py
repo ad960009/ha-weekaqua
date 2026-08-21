@@ -320,6 +320,26 @@ class WeekAquaProtocol:
             max(0, min(5, int(ramp_idx)))
         ])
 
+    @classmethod
+    def build_mode1_timer_packet(
+        cls,
+        start_h: int,
+        start_m: int,
+        end_h: int,
+        end_m: int,
+    ) -> bytes:
+        """Build Mode 1 (5746/M-series) Timer packet: FEEF + BCD(StartH) + BCD(StartM) + BCD(EndH) + BCD(EndM) + 0x55 0x55."""
+        return bytes([
+            0xFE,
+            0xEF,
+            cls.decimal_to_bcd(start_h),
+            cls.decimal_to_bcd(start_m),
+            cls.decimal_to_bcd(end_h),
+            cls.decimal_to_bcd(end_m),
+            0x55,
+            0x55
+        ])
+
     @staticmethod
     def split_cross_midnight_timer(
         start_h: int,
