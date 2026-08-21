@@ -98,6 +98,20 @@ class TestWeekAquaProtocol(unittest.TestCase):
         self.assertEqual(len(midnight_end), 1)
         self.assertEqual(midnight_end[0], (16, 0, 24, 0))
 
+    def test_live_mode_sequence_4ch(self):
+        seq = WeekAquaProtocol.build_live_mode_sequence(is_4ch_rgb_uv=True)
+        self.assertEqual(len(seq), 4)
+        self.assertEqual(seq[0].hex().upper(), "FDF1555555555555")
+        self.assertEqual(seq[1].hex().upper(), "FDF4555555555555")
+        self.assertEqual(seq[2].hex().upper(), "FEEF000023590000")
+        self.assertEqual(seq[3].hex().upper(), "F6F2555555555555")
+
+    def test_schedule_mode_sequence_4ch(self):
+        seq = WeekAquaProtocol.build_schedule_mode_sequence(is_4ch_rgb_uv=True)
+        self.assertEqual(len(seq), 2)
+        self.assertEqual(seq[0].hex().upper(), "FDF3555555555555")
+        self.assertEqual(seq[1].hex().upper(), "FDF2555555555555")
+
 
 if __name__ == "__main__":
     unittest.main()

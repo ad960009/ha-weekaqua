@@ -54,17 +54,36 @@ def describe_packet(packet: bytes) -> str:
         hdr = "FBEF" if p1 == 0xEF else "FBF9"
         return f"SetSpectrum [{hdr}] (R:{r}% G:{g}% B:{b}% CH4:{ch4}%)"
     if p0 == 0xFF:
-        return "Sync RTC Time (0xFF)"
+        return f"Sync RTC Time [0xFF] ({packet[1]:02X}:{packet[2]:02X}:{packet[3]:02X})"
     if p0 == 0xFD:
-        return f"Set Mode ({p1})"
+        sub_desc = {
+            0xF1: "Mode 1 (Live/Spectrum)",
+            0xF2: "Mode 2 (Ramp Schedule)",
+            0xF3: "Mode 3 (Ramp Init)",
+            0xF4: "Mode 1 Sub (Activate Spectrum)",
+            0xF5: "Mode 5",
+        }.get(p1, f"0x{p1:02X}")
+        return f"SetMode [FD{p1:02X}] ({sub_desc})"
+    if p0 == 0xFE:
+        if p1 == 0xEF:
+            return f"SetTimer [FEEF] ({packet[2]:02X}:{packet[3]:02X} - {packet[4]:02X}:{packet[5]:02X})"
+        if p1 == 0xF9:
+            return f"SetTimer [FEF9] ({packet[2]:02X}:{packet[3]:02X} - {packet[4]:02X}:{packet[5]:02X})"
+        slot = p1 & 0x0F
+        return f"SetRampTime [FE{p1:02X}] Slot #{slot} ({packet[2]:02X}:{packet[3]:02X} - {packet[4]:02X}:{packet[5]:02X})"
+    if p0 == 0xFB:
+        slot = p1 & 0x0F
+        return f"SetRampSpectrum [FB{p1:02X}] Slot #{slot}"
     if p0 == 0xFC:
-        return f"Set Preset Curve ({p1})"
+        pct = round(WeekAquaProtocol.byte_to_percent(p1))
+        return f"SetFanSpeed [FC] ({pct}%)"
     if p0 == 0xF6:
-        return f"Timer Switch (0xF6 0x{p1:02X})"
+        state = "ON" if p1 == 0xF1 else ("OFF (Manual)" if p1 == 0xF2 else f"0x{p1:02X}")
+        return f"TimerSwitch [F6{p1:02X}] ({state})"
+    if p0 == 0xF0:
+        return "InitHandshake [F0]"
     if p0 == 0xFA:
         return "Query Device Info (0xFA)"
-    if p0 in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C):
-        return f"Schedule Slot #{p0} Data"
     return f"Cmd 0x{p0:02X} 0x{p1:02X}"
 
 
@@ -163,6 +182,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._schedule_unsub: Any = None
         self._last_sent_spectrum: bytes | None = None
         self._last_rtc_sync_date: date | None = None
+        self._current_mode: int = 0  # 0: Unknown, 1: Live Manual Spectrum Mode, 2: Hardware Ramp Schedule Mode
 
         # [실시간 패킷 모니터링] 링 버퍼 로그 (최근 60건)
         self.ble_logs: deque[dict[str, Any]] = deque(maxlen=60)
@@ -801,6 +821,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_uv = norm.uv
         self.current_v = norm.violet
 
+        # [모드 전환 필수 패킷] 스케줄 모드(Mode 2)에서 수동 실시간 모드로 전환 시 Mode 1 시퀀스 선행 송신
+        if self._current_mode != 1:
+            self._current_mode = 1
+            for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+            ):
+                await self.enqueue_packet(mode_pkt)
+
         packet = WeekAquaProtocol.build_live_spectrum_packet(
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code,
@@ -895,7 +923,11 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.enqueue_packet(s_pkt2)
 
             # Activate Mode 2 (Advanced Custom Ramp Schedule Mode)
-            await self.enqueue_packet(WeekAquaProtocol.build_mode_packet(2))
+            self._current_mode = 2
+            for mode_pkt in WeekAquaProtocol.build_schedule_mode_sequence(
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+            ):
+                await self.enqueue_packet(mode_pkt)
             _LOGGER.info(
                 "Sent 2-slot cross-midnight hardware schedule for WeekAqua (%s): %02d:%02d~24:00 & 00:00~%02d:%02d",
                 self.mac, int1[0], int1[1], int2[2], int2[3]
@@ -911,7 +943,11 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.enqueue_packet(s_pkt1)
 
             # Activate Mode 2
-            await self.enqueue_packet(WeekAquaProtocol.build_mode_packet(2))
+            self._current_mode = 2
+            for mode_pkt in WeekAquaProtocol.build_schedule_mode_sequence(
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+            ):
+                await self.enqueue_packet(mode_pkt)
             _LOGGER.info(
                 "Sent single-slot hardware schedule for WeekAqua (%s): %02d:%02d~%02d:%02d",
                 self.mac, int1[0], int1[1], int1[2], int1[3]
