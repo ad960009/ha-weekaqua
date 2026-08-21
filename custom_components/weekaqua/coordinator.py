@@ -667,10 +667,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             finally:
                 self._write_queue.task_done()
 
-    # --- Unlimited Dynamic Schedule & Linear Ramp Engine ---
+    # --- Unlimited Dynamic Schedule (Slot On-Time Transmission Engine) ---
 
     def calculate_interpolated_spectrum(self, target_time: time | None = None) -> NormalizedSpectrum:
-        """Calculate exact interpolated spectrum at given time using N waypoints."""
+        """Find the active schedule slot spectrum for the given time (Slot on-time / Step mode)."""
         if not self.schedule_points:
             return NormalizedSpectrum(0, 0, 0, 0, 0, 0)
 
@@ -678,83 +678,45 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             target_time = datetime.now().time()
 
         now_sec = target_time.hour * 3600 + target_time.minute * 60 + target_time.second
-
         pts = self.schedule_points
-        if len(pts) == 1:
-            p = pts[0]
-            return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                float(p.get("r", 0)), float(p.get("g", 0)), float(p.get("b", 0)),
-                float(p.get("w", 0)), float(p.get("uv", 0)), float(p.get("v", 0)),
-                self.model_code
-            )
 
-        start_h, start_m, start_s = parse_time_str(pts[0]["time"])
-        end_h, end_m, end_s = parse_time_str(pts[-1]["time"])
-        start_sec = start_h * 3600 + start_m * 60 + start_s
-        end_sec = end_h * 3600 + end_m * 60 + end_s
-
-        last_pt = pts[-1]
-        end_spectrum = WeekAquaProtocol.normalize_spectrum_to_max_power(
-            float(last_pt.get("r", 0)), float(last_pt.get("g", 0)), float(last_pt.get("b", 0)),
-            float(last_pt.get("w", 0)), float(last_pt.get("uv", 0)), float(last_pt.get("v", 0)),
-            self.model_code
-        )
-
-        # Check if in Night / Off hold period (from end_sec until start_sec)
-        in_hold = False
-        if end_sec <= start_sec:
-            # Crosses midnight (e.g. 18:00 to 02:00). Hold interval: 02:00 <= now_sec < 18:00
-            if end_sec <= now_sec < start_sec:
-                in_hold = True
-        else:
-            # Same-day (e.g. 08:00 to 20:00). Hold interval: now_sec < 08:00 or now_sec >= 20:00
-            if now_sec < start_sec or now_sec >= end_sec:
-                in_hold = True
-
-        if in_hold:
-            if self.keep_moonlight:
-                return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                    0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
-                )
-            return end_spectrum
-
-        # Inside active schedule period -> Lerp along elapsed timeline from start_sec
-        timeline: list[tuple[int, dict[str, float]]] = []
+        # Sort points by time of day in seconds
+        timeline: list[tuple[int, dict[str, Any]]] = []
         for pt in pts:
             h, m, s = parse_time_str(pt["time"])
             sec = h * 3600 + m * 60 + s
-            elapsed = (sec - start_sec) if sec >= start_sec else (86400 - start_sec + sec)
-            timeline.append((elapsed, {
-                "r": float(pt.get("r", 0)),
-                "g": float(pt.get("g", 0)),
-                "b": float(pt.get("b", 0)),
-                "w": float(pt.get("w", 0)),
-                "uv": float(pt.get("uv", 0)),
-                "v": float(pt.get("v", 0)),
-            }))
+            timeline.append((sec, pt))
 
         timeline.sort(key=lambda x: x[0])
-        elapsed_now = (now_sec - start_sec) if now_sec >= start_sec else (86400 - start_sec + now_sec)
 
-        for i in range(len(timeline) - 1):
-            if timeline[i][0] <= elapsed_now <= timeline[i + 1][0]:
-                t1, spec1 = timeline[i]
-                t2, spec2 = timeline[i + 1]
-                ratio = (elapsed_now - t1) / (t2 - t1) if t2 > t1 else 0.0
-                ratio = max(0.0, min(1.0, ratio))
+        # Find the latest slot that has arrived (sec <= now_sec)
+        active_pt = None
+        for sec, pt in timeline:
+            if sec <= now_sec:
+                active_pt = pt
+            else:
+                break
 
-                lerp_r = spec1["r"] + (spec2["r"] - spec1["r"]) * ratio
-                lerp_g = spec1["g"] + (spec2["g"] - spec1["g"]) * ratio
-                lerp_b = spec1["b"] + (spec2["b"] - spec1["b"]) * ratio
-                lerp_w = spec1["w"] + (spec2["w"] - spec1["w"]) * ratio
-                lerp_uv = spec1["uv"] + (spec2["uv"] - spec1["uv"]) * ratio
-                lerp_v = spec1["v"] + (spec2["v"] - spec1["v"]) * ratio
+        # If before the first slot of the day, wrap around to the last slot of previous day
+        if active_pt is None:
+            active_pt = timeline[-1][1]
 
-                return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                    lerp_r, lerp_g, lerp_b, lerp_w, lerp_uv, lerp_v, self.model_code
-                )
+        r_val = float(active_pt.get("r", 0))
+        g_val = float(active_pt.get("g", 0))
+        b_val = float(active_pt.get("b", 0))
+        w_val = float(active_pt.get("w", 0))
+        uv_val = float(active_pt.get("uv", 0))
+        v_val = float(active_pt.get("v", 0))
 
-        return end_spectrum
+        # Night Moonlight retention if active slot has 0 power
+        if self.keep_moonlight and (r_val + g_val + b_val + w_val + uv_val + v_val) == 0:
+            return WeekAquaProtocol.normalize_spectrum_to_max_power(
+                0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
+            )
+
+        return WeekAquaProtocol.normalize_spectrum_to_max_power(
+            r_val, g_val, b_val, w_val, uv_val, v_val, self.model_code
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """
