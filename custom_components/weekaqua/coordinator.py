@@ -144,7 +144,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Dynamic Unlimited Schedule Waypoints & Metadata (Persisted across restarts)
         self.schedule_points: list[dict[str, Any]] = entry_data.get(CONF_SCHEDULE, self._get_default_schedule())
         self.schedule_meta: dict[str, Any] = entry_data.get("schedule_meta", {})
-        self.schedule_enabled: bool = True
+        self.schedule_enabled: bool = entry_data.get("schedule_enabled", False)
 
         # Current live channel state (0.0 ~ 100.0)
         self.current_r: float = 0.0
@@ -426,20 +426,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         _LOGGER.info("Subscribed to GATT Notify: %s on %s", self._notify_char_uuid, self.mac)
                     except Exception as notify_err:
                         _LOGGER.debug("Notify subscription on %s skipped: %s", self.mac, notify_err)
-
-                # 초기 RTC 동기화 및 MCU 상태 리셋 패킷 전송
-                await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet())
-                await self.enqueue_packet(WeekAquaProtocol.build_state_init_packet())
-
-                # 활성화된 동적 스케줄이 있다면 현재 시각에 맞는 스펙트럼 즉시 갱신 전송
-                if self.schedule_enabled and self.schedule_points:
-                    target = self.calculate_interpolated_spectrum(datetime.now().time())
-                    sched_pkt = WeekAquaProtocol.build_live_spectrum_packet(
-                        target.r, target.g, target.b, target.w, target.uv, target.violet,
-                        self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-                    )
-                    self._last_sent_spectrum = sched_pkt
-                    await self.enqueue_packet(sched_pkt, is_live_spectrum=True)
 
                 return True
 

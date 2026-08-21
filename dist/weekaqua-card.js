@@ -799,6 +799,7 @@ class WeekAquaCard extends HTMLElement {
               <span style="font-size: 11px; color: #94A3B8;">Real-time BLE GATT Packet Write & Queue Stream</span>
               <div style="display: flex; gap: 6px;">
                 <button class="btn-conn" id="btn-log-autoscroll" style="background:#1E293B;">Auto-scroll: ON</button>
+                <button class="btn-conn" id="btn-log-copy">📋 Copy</button>
                 <button class="btn-conn" id="btn-log-clear">🗑️ Clear</button>
               </div>
             </div>
@@ -1027,7 +1028,48 @@ class WeekAquaCard extends HTMLElement {
       btnLogClear.addEventListener('click', (e) => {
         e.stopPropagation();
         this._clearedLogId = this._maxLogId || 1;
+        this._lastRenderedLogs = [];
         this._renderLogs([]);
+      });
+    }
+
+    const btnLogCopy = root.getElementById('btn-log-copy');
+    if (btnLogCopy) {
+      btnLogCopy.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const logs = this._lastRenderedLogs || [];
+        if (logs.length === 0) {
+          btnLogCopy.textContent = 'Empty';
+          setTimeout(() => { btnLogCopy.textContent = '📋 Copy'; }, 1500);
+          return;
+        }
+        const text = logs.map((l) => {
+          const q = l.q_size !== undefined ? ` [Q: ${l.q_size}/10]` : '';
+          const hex = l.hex ? ` ${l.hex}` : '';
+          return `${l.ts || ''} [${l.event || 'LOG'}]${q} ${l.msg || ''}${hex}`;
+        }).join('\n');
+
+        const fallbackCopy = () => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          btnLogCopy.textContent = '✅ Copied!';
+          setTimeout(() => { btnLogCopy.textContent = '📋 Copy'; }, 2000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            btnLogCopy.textContent = '✅ Copied!';
+            setTimeout(() => { btnLogCopy.textContent = '📋 Copy'; }, 2000);
+          }).catch(() => fallbackCopy());
+        } else {
+          fallbackCopy();
+        }
       });
     }
 
@@ -1696,6 +1738,8 @@ class WeekAquaCard extends HTMLElement {
     if (!root) return;
     const consoleEl = root.getElementById('log-console');
     if (!consoleEl) return;
+
+    this._lastRenderedLogs = logs || [];
 
     if (!logs || logs.length === 0) {
       if (this._clearedLogId) {
