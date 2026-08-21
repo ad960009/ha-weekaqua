@@ -769,10 +769,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
-            force_send = False
-            if not self._manual_disconnected and (not self.is_connected or self._current_mode != 1):
-                force_send = True
-
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
                 self.current_uv, self.current_v, self.model_code,
@@ -780,9 +776,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
             if not self._manual_disconnected:
-                if force_send or packet != self._last_sent_spectrum:
+                if packet != self._last_sent_spectrum:
                     self._last_sent_spectrum = packet
-                    await self._send_live_spectrum_with_mode(packet, force_mode=force_send)
+                    await self._send_live_spectrum_with_mode(packet)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
