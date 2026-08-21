@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -32,10 +33,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up WeekAqua number entities."""
     coordinator: WeekAquaCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = [
+    entities: list[NumberEntity] = [
         WeekAquaChannelNumber(coordinator, ch_id, ch_name, icon, min_val, max_val)
         for ch_id, ch_name, icon, min_val, max_val in CHANNELS
     ]
+    entities.append(WeekAquaMoonlightBrightnessNumber(coordinator))
     async_add_entities(entities)
 
 
@@ -109,3 +111,52 @@ class WeekAquaChannelNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity
         v = value if self.ch_id == "violet" else self.coordinator.current_v
 
         await self.coordinator.async_set_spectrum(r, g, b, w, uv, v, disable_schedule=True)
+
+
+class WeekAquaMoonlightBrightnessNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity, RestoreEntity):
+    """Slider to configure the night moonlight brightness (1.0 ~ 20.0%)."""
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_step = 1.0
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:moon-waning-crescent"
+    _attr_native_min_value = 1.0
+    _attr_native_max_value = 20.0
+
+    def __init__(self, coordinator: WeekAquaCoordinator) -> None:
+        """Initialize the moonlight brightness number entity."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.mac}_moonlight_brightness"
+        self._attr_name = "Moonlight Brightness"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous value on HA startup."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                val = float(last_state.state)
+                self.coordinator.moonlight_brightness = max(1.0, min(20.0, val))
+                self.coordinator.async_set_updated_data(self.coordinator._build_data())
+            except (ValueError, TypeError):
+                pass
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.mac)},
+            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
+            name=self.coordinator.device_name,
+            manufacturer="WeekAqua",
+            model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return current moonlight brightness percentage."""
+        return self.coordinator.moonlight_brightness
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update moonlight brightness percentage."""
+        await self.coordinator.async_set_moonlight_brightness(value)

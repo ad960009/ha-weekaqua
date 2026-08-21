@@ -139,6 +139,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_name: str = entry_data.get(CONF_NAME, "WeekAqua")
         self.model_code: str = entry_data.get(CONF_MODEL_CODE, "")
         self.keep_moonlight: bool = entry_data.get(CONF_KEEP_MOONLIGHT, True)
+        self.moonlight_brightness: float = float(entry_data.get("moonlight_brightness", 4.0))
         self.schedule_interval: int = entry_data.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL)
 
         # Dynamic Unlimited Schedule Waypoints & Metadata (Persisted across restarts)
@@ -653,6 +654,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 in_hold = True
 
         if in_hold:
+            if self.keep_moonlight:
+                return WeekAquaProtocol.normalize_spectrum_to_max_power(
+                    0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
+                )
             return end_spectrum
 
         # Inside active schedule period -> Lerp along elapsed timeline from start_sec
@@ -808,6 +813,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule_enabled": self.schedule_enabled,
             "schedule_points": self.schedule_points,
             "schedule_meta": self.schedule_meta,
+            "keep_moonlight": self.keep_moonlight,
+            "moonlight_brightness": self.moonlight_brightness,
             "current_mode": self._current_mode,
             "mode_name": "Schedule (Mode 2)" if self._current_mode == 2 else "Live (Mode 1)",
             "ble_logs": list(self.ble_logs),
@@ -821,6 +828,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 new_data = {
                     **self._entry.data,
                     "schedule_enabled": self.schedule_enabled,
+                    "keep_moonlight": self.keep_moonlight,
+                    "moonlight_brightness": self.moonlight_brightness,
                     "current_mode": self._current_mode,
                     "current_r": self.current_r,
                     "current_g": self.current_g,
@@ -835,6 +844,66 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.config_entries.async_update_entry(self._entry, data=new_data)
             except Exception as err:
                 _LOGGER.debug("Failed to persist state to config entry: %s", err)
+
+    async def async_set_moonlight_enabled(self, enabled: bool) -> None:
+        """Enable or disable night moonlight and send packet immediately."""
+        self.keep_moonlight = enabled
+        _LOGGER.info("Night moonlight %s for %s", "ENABLED" if enabled else "DISABLED", self.mac)
+
+        if self.schedule_enabled:
+            # Re-evaluate schedule spectrum at current time
+            target = self.calculate_interpolated_spectrum(datetime.now().time())
+            self.current_r = target.r
+            self.current_g = target.g
+            self.current_b = target.b
+            self.current_w = target.w
+            self.current_uv = target.uv
+            self.current_v = target.violet
+
+            packet = WeekAquaProtocol.build_live_spectrum_packet(
+                self.current_r, self.current_g, self.current_b, self.current_w,
+                self.current_uv, self.current_v, self.model_code,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
+            self._last_sent_spectrum = packet
+            if not self._manual_disconnected:
+                await self.enqueue_packet(packet, is_live_spectrum=True)
+        else:
+            # Direct manual moonlight control
+            target_b = float(self.moonlight_brightness) if enabled else 0.0
+            await self.async_set_spectrum(0.0, 0.0, target_b, 0.0, 0.0, 0.0, disable_schedule=False)
+
+        self._persist_state()
+        self.async_set_updated_data(self._build_data())
+
+    async def async_set_moonlight_brightness(self, brightness: float) -> None:
+        """Set moonlight brightness percentage (1.0 ~ 20.0%) and update if active."""
+        self.moonlight_brightness = max(1.0, min(20.0, float(brightness)))
+        _LOGGER.info("Moonlight brightness set to %.1f%% for %s", self.moonlight_brightness, self.mac)
+
+        if self.keep_moonlight:
+            if self.schedule_enabled:
+                target = self.calculate_interpolated_spectrum(datetime.now().time())
+                self.current_r = target.r
+                self.current_g = target.g
+                self.current_b = target.b
+                self.current_w = target.w
+                self.current_uv = target.uv
+                self.current_v = target.violet
+
+                packet = WeekAquaProtocol.build_live_spectrum_packet(
+                    self.current_r, self.current_g, self.current_b, self.current_w,
+                    self.current_uv, self.current_v, self.model_code,
+                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+                )
+                self._last_sent_spectrum = packet
+                if not self._manual_disconnected:
+                    await self.enqueue_packet(packet, is_live_spectrum=True)
+            else:
+                await self.async_set_spectrum(0.0, 0.0, self.moonlight_brightness, 0.0, 0.0, 0.0, disable_schedule=False)
+
+        self._persist_state()
+        self.async_set_updated_data(self._build_data())
 
     # --- Public Control Methods (Called by Entities & Services) ---
 

@@ -156,10 +156,8 @@ class WeekAquaMoonlightSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEnti
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable moonlight."""
-        self.coordinator.keep_moonlight = True
-        self.coordinator.async_set_updated_data(self.coordinator._build_data())
+        await self.coordinator.async_set_moonlight_enabled(True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable moonlight."""
-        self.coordinator.keep_moonlight = False
-        self.coordinator.async_set_updated_data(self.coordinator._build_data())
+        await self.coordinator.async_set_moonlight_enabled(False)
