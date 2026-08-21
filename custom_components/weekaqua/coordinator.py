@@ -1009,20 +1009,19 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_enabled = False
         self._current_mode = 1
 
-        # 1. Transmit Mode 1 unlock sequence (FEF9 24h + FDF1)
-        for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
-            spectrum_packet=None, is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-        ):
-            await self.enqueue_packet(mode_pkt)
-
-        # 2. Transmit current live manual spectrum
+        # 1. Build current live manual spectrum
         packet = WeekAquaProtocol.build_live_spectrum_packet(
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code,
             is_4ch_rgb_uv=self._is_4ch_rgb_uv()
         )
         self._last_sent_spectrum = packet
-        await self.enqueue_packet(packet, is_live_spectrum=True)
+        
+        # 2. Transmit Mode 1 unlock sequence (FDF1 -> Spectrum -> FEF9/FEEF 24h)
+        for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+            spectrum_packet=packet, is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+        ):
+            await self.enqueue_packet(mode_pkt, is_live_spectrum=(mode_pkt == packet))
 
         self._persist_state()
         self._add_log("SET_MODE", "Switched to Manual Live Spectrum Mode (Mode 1 / FDF1)", level="info")

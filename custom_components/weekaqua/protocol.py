@@ -167,8 +167,8 @@ class WeekAquaProtocol:
         uv = cls.percent_to_byte(norm.uv)
         v = cls.percent_to_byte(norm.violet)
 
-        # 4-Channel RGB/UV (e.g. M800 Pro, M-Series, S-Series, T90, Model 5746 - StringOneTools)
-        if is_4ch_rgb_uv or model_code == "5746":
+        # 4-Channel RGB/UV (Model 5746 - StringOneTools)
+        if model_code == "5746":
             ch4 = uv if uv > 0 else w
             return bytes([0xFB, 0xEF, r, g, b, ch4, 0x55, 0x55])
 
@@ -221,18 +221,18 @@ class WeekAquaProtocol:
         if spectrum_packet:
             seq.append(spectrum_packet)
             
-        seq.extend([
-            # 3. Open 24h timer window for 5746/M-series (FEEF 00:00 ~ 24:00)
-            bytes([0xFE, 0xEF, 0x00, 0x00, 0x24, 0x00, 0x55, 0x55]),
-            # 4. Open 24h timer window (00:00 ~ 24:00, Enabled, Ramp 0h)
-            bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]),
-        ])
+        # 3. Open 24h timer window (00:00 ~ 24:00) to clear overrides and prevent auto-dimming
+        if model_code == "5746":
+            seq.append(bytes([0xFE, 0xEF, 0x00, 0x00, 0x24, 0x00, 0x55, 0x55]))
+        else:
+            seq.append(bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]))
+            
         return seq
 
     @classmethod
     def build_schedule_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:
         """Return mode activation sequence when enabling Dynamic / Ramp Schedule (Mode 2)."""
-        if is_4ch_rgb_uv or model_code == "5746":
+        if model_code == "5746":
             return [
                 bytes([0xFD, 0xF3, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
                 bytes([0xFD, 0xF2, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),

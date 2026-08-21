@@ -34,6 +34,13 @@ Home Assistant(HA) 환경에서 **WeekAqua 수조 조명**을 제어할 수 있�
 
 ---
 
+## 🔌 호환 및 테스트된 기기 (Tested Devices)
+
+본 프로젝트는 다음과 같은 하드웨어 펌웨어 환경에서 직접 테스트 및 검증되었습니다.
+- **B3.0-M800Pro-18** (4-Channel RGB/UV, Legacy 5745 Protocol Mode)
+
+---
+
 > [!WARNING]
 > ### ⚠️ Live 모드 (Mode 1) 하드웨어 동작 특성 및 불안정성 안내
 > * **내부 타이머 의존성**: WeekAqua 조명 MCU는 실시간 라이브 모드(`Mode 1 / FDF1`) 동작 시 하드웨어 내부 타이머(`FEF9` 또는 `FEEF`)와 결합되어 작동합니다.
