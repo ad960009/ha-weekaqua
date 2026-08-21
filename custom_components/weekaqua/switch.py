@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -70,7 +71,7 @@ class WeekAquaBleConnectionSwitch(CoordinatorEntity[WeekAquaCoordinator], Switch
         await self.coordinator.async_disconnect()
 
 
-class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity):
+class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity, RestoreEntity):
     """Switch to enable/disable unlimited dynamic schedule."""
 
     _attr_has_entity_name = True
@@ -81,6 +82,17 @@ class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntit
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.mac}_schedule_enable"
         self._attr_name = "Dynamic Schedule"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on HA startup."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state == "on":
+                self.coordinator.schedule_enabled = True
+                await self.coordinator.async_set_schedule_enabled(True)
+            elif last_state.state == "off":
+                self.coordinator.schedule_enabled = False
+                self.coordinator.async_set_updated_data(self.coordinator._build_data())
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -107,7 +119,7 @@ class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntit
         await self.coordinator.async_set_schedule_enabled(False)
 
 
-class WeekAquaMoonlightSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity):
+class WeekAquaMoonlightSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity, RestoreEntity):
     """Switch to toggle night moonlight retention."""
 
     _attr_has_entity_name = True
@@ -118,6 +130,13 @@ class WeekAquaMoonlightSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEnti
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.mac}_moonlight"
         self._attr_name = "Keep Night Moonlight"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on HA startup."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            self.coordinator.keep_moonlight = (last_state.state == "on")
+            self.coordinator.async_set_updated_data(self.coordinator._build_data())
 
     @property
     def device_info(self) -> DeviceInfo:

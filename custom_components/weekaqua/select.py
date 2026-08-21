@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -30,7 +31,7 @@ async def async_setup_entry(
     ])
 
 
-class WeekAquaModeSelect(CoordinatorEntity[WeekAquaCoordinator], SelectEntity):
+class WeekAquaModeSelect(CoordinatorEntity[WeekAquaCoordinator], SelectEntity, RestoreEntity):
     """Dropdown selector for WeekAqua hardware operating mode."""
 
     _attr_has_entity_name = True
@@ -42,6 +43,16 @@ class WeekAquaModeSelect(CoordinatorEntity[WeekAquaCoordinator], SelectEntity):
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.mac}_operation_mode"
         self._attr_name = "Operation Mode"
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous mode on HA startup."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            if "Schedule" in last_state.state or "Mode 2" in last_state.state:
+                self.coordinator._current_mode = 2
+            elif "Live" in last_state.state or "Mode 1" in last_state.state:
+                self.coordinator._current_mode = 1
+            self.coordinator.async_set_updated_data(self.coordinator._build_data())
 
     @property
     def device_info(self) -> DeviceInfo:
