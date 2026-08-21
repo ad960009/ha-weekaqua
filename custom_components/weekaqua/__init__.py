@@ -151,9 +151,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if preset_key in PRESETS:
             preset = PRESETS[preset_key]
             for coord in _get_target_coordinators(hass, call):
+                is_4ch = coord._is_4ch_rgb_uv()
+                uv_val = preset["w"] if is_4ch else preset.get("uv", 0.0)
+                w_val = 0.0 if is_4ch else preset["w"]
                 await coord.async_set_spectrum(
-                    preset["r"], preset["g"], preset["b"], preset["w"],
-                    preset.get("uv", 0), preset.get("v", 0)
+                    preset["r"], preset["g"], preset["b"], w_val,
+                    uv_val, preset.get("v", 0.0)
                 )
 
     async def handle_set_spectrum(call: ServiceCall) -> None:
@@ -183,24 +186,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         start_time = call.data["start_time"]
         end_time = call.data["end_time"]
         preset_key = call.data.get("preset")
-        if preset_key and preset_key in PRESETS:
-            p = PRESETS[preset_key]
-            r = p["r"]
-            g = p["g"]
-            b = p["b"]
-            w = p["w"]
-            uv = p.get("uv", 0.0)
-            violet = p.get("v", 0.0)
-        else:
-            r = call.data.get("red", 80.0)
-            g = call.data.get("green", 80.0)
-            b = call.data.get("blue", 80.0)
-            w = call.data.get("white", 80.0)
-            uv = call.data.get("uv", 0.0)
-            violet = call.data.get("violet", 0.0)
         ramp_idx = call.data.get("ramp_index", 2)
 
         for coord in _get_target_coordinators(hass, call):
+            is_4ch = coord._is_4ch_rgb_uv()
+            if preset_key and preset_key in PRESETS:
+                p = PRESETS[preset_key]
+                r = p["r"]
+                g = p["g"]
+                b = p["b"]
+                w = 0.0 if is_4ch else p["w"]
+                uv = p["w"] if is_4ch else p.get("uv", 0.0)
+                violet = p.get("v", 0.0)
+            else:
+                r = call.data.get("red", 80.0)
+                g = call.data.get("green", 80.0)
+                b = call.data.get("blue", 80.0)
+                w = 0.0 if is_4ch else call.data.get("white", 80.0)
+                uv = call.data.get("white", 80.0) if is_4ch else call.data.get("uv", 0.0)
+                violet = call.data.get("violet", 0.0)
+
             await coord.async_set_hardware_timer(
                 start_time, end_time, r, g, b, w, uv, violet, ramp_idx=ramp_idx
             )

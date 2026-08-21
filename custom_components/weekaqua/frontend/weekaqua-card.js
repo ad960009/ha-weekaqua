@@ -1107,11 +1107,42 @@ class WeekAquaCard extends HTMLElement {
     }
   }
 
-  _applyPreset(presetName) {
-    const p = CARD_PRESETS[presetName];
-    if (p) {
-      this._setSliderValues(p.r, p.g, p.b, p.w, p.uv || 0, p.v || 0);
+  _getPresetSpectrum(presetName) {
+    const p = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
+    const attr = (this._hass && this._config.entity && this._hass.states[this._config.entity]?.attributes) || {};
+    const bleName = (attr.ble_name || attr.model_name || attr.device_name || '').toUpperCase();
+    const is4ChRgbUv = attr.is_4ch_rgb_uv !== undefined
+      ? Boolean(attr.is_4ch_rgb_uv)
+      : (attr.model_code === '5746' || (!attr.has_white && attr.has_uv) || (bleName && (
+          bleName.includes('M800') || bleName.includes('M600') || bleName.includes('M450') ||
+          bleName.includes('S400') || bleName.includes('S600') || bleName.includes('S800') ||
+          bleName.includes('T90') || bleName.includes('T60') || bleName.startsWith('M')
+        )));
+
+    if (is4ChRgbUv) {
+      // 4-Channel RGB/UV (e.g. M800 Pro): Channel 4 is UV, no physical White channel
+      return {
+        r: p.r,
+        g: p.g,
+        b: p.b,
+        w: 0,
+        uv: p.w || p.uv || 0,
+        v: 0
+      };
     }
+    return {
+      r: p.r,
+      g: p.g,
+      b: p.b,
+      w: p.w,
+      uv: p.uv || 0,
+      v: p.v || 0
+    };
+  }
+
+  _applyPreset(presetName) {
+    const spec = this._getPresetSpectrum(presetName);
+    this._setSliderValues(spec.r, spec.g, spec.b, spec.w, spec.uv, spec.v);
     if (this._hass) {
       this._hass.callService('weekaqua', 'apply_preset', {
         device_id: this._config.device_id || '',
@@ -1148,7 +1179,7 @@ class WeekAquaCard extends HTMLElement {
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
     const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
-    const baseSpec = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
+    const baseSpec = this._getPresetSpectrum(presetName);
     const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
     this._keepMoonlight = keepMoonlight;
 
