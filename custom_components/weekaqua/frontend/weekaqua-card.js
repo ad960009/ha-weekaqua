@@ -518,6 +518,103 @@ class WeekAquaCard extends HTMLElement {
           border-radius: 4px;
           cursor: pointer;
         }
+
+        /* Collapsible BLE Packet & Queue Log Monitor */
+        .log-container {
+          background: #18181B;
+          border: 1px solid #3F3F46;
+          border-radius: 8px;
+          margin-top: 14px;
+          overflow: hidden;
+        }
+        .log-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          background: #27272A;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          user-select: none;
+          transition: background 0.2s;
+        }
+        .log-header:hover {
+          background: #3F3F46;
+        }
+        .log-badge-q {
+          background: #3F3F46;
+          color: #E0F2FE;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-family: monospace;
+          letter-spacing: 0.5px;
+          transition: background 0.3s;
+        }
+        .log-toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 12px;
+          background: #1F2024;
+          border-top: 1px solid #3F3F46;
+          border-bottom: 1px solid #27272A;
+        }
+        .log-console {
+          max-height: 220px;
+          overflow-y: auto;
+          background: #090A0F;
+          padding: 8px 12px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 11px;
+          line-height: 1.6;
+        }
+        .log-line {
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+          border-bottom: 1px solid #1E2028;
+          padding: 2px 0;
+          word-break: break-all;
+        }
+        .log-ts {
+          color: #64748B;
+          flex-shrink: 0;
+          font-size: 10px;
+        }
+        .log-tag {
+          font-weight: 700;
+          font-size: 10px;
+          padding: 1px 5px;
+          border-radius: 3px;
+          flex-shrink: 0;
+        }
+        .log-tag.ENQUEUE { background: rgba(56, 189, 248, 0.2); color: #38BDF8; }
+        .log-tag.DEQUEUE { background: rgba(251, 191, 36, 0.2); color: #FBBF24; }
+        .log-tag.WRITE_OK { background: rgba(52, 211, 153, 0.2); color: #34D399; }
+        .log-tag.WRITE_ERR, .log-tag.QUEUE_ERR, .log-tag.CONNECT_ERR { background: rgba(248, 113, 113, 0.2); color: #F87171; }
+        .log-tag.DEDUP { background: rgba(192, 132, 252, 0.2); color: #C084FC; }
+        .log-tag.QUEUE_DROP, .log-tag.WRITE_SKIP, .log-tag.DISCONNECT { background: rgba(251, 146, 60, 0.2); color: #FB923C; }
+        .log-tag.CONNECT_OK, .log-tag.GATT_READY { background: rgba(16, 185, 129, 0.2); color: #10B981; }
+        .log-tag.CONNECT_REQ, .log-tag.DISCONNECT_REQ, .log-tag.TIMEOUT_DISCONN { background: rgba(148, 163, 184, 0.2); color: #94A3B8; }
+        .log-hex {
+          background: #1C1F26;
+          color: #FDE047;
+          padding: 0 4px;
+          border-radius: 3px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+        }
+        .log-q-len {
+          color: #06B6D4;
+          font-weight: 700;
+          font-size: 10px;
+        }
+        .log-msg {
+          color: #E2E8F0;
+        }
       </style>
 
       <div class="card">
@@ -686,6 +783,29 @@ class WeekAquaCard extends HTMLElement {
           </div>
 
           <button class="btn-action" id="btn-save-sched">💾 Save & Sync Schedule to Home Assistant</button>
+        </div>
+
+        <!-- Collapsible BLE Packet & Write Queue Monitor -->
+        <div class="log-container">
+          <div class="log-header" id="log-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span>📜 BLE Packet & Write Queue Monitor</span>
+              <span class="log-badge-q" id="log-queue-badge">Q: 0/10</span>
+            </div>
+            <span id="log-toggle-icon" style="color: #94A3B8; font-size: 11px;">▼ Expand</span>
+          </div>
+          <div id="log-body-wrap" style="display: none;">
+            <div class="log-toolbar">
+              <span style="font-size: 11px; color: #94A3B8;">Real-time BLE GATT Packet Write & Queue Stream</span>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn-conn" id="btn-log-autoscroll" style="background:#1E293B;">Auto-scroll: ON</button>
+                <button class="btn-conn" id="btn-log-clear">🗑️ Clear</button>
+              </div>
+            </div>
+            <div class="log-console" id="log-console">
+              <div style="color: #64748B; padding: 4px 0;">No BLE packet activity logged yet.</div>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -883,6 +1003,46 @@ class WeekAquaCard extends HTMLElement {
 
     // Schedule: Save
     root.getElementById('btn-save-sched').addEventListener('click', () => this._saveScheduleToHA());
+
+    // Log Viewer Controls
+    const logHeader = root.getElementById('log-header');
+    const logBodyWrap = root.getElementById('log-body-wrap');
+    const logToggleIcon = root.getElementById('log-toggle-icon');
+    const btnLogClear = root.getElementById('btn-log-clear');
+    const btnLogAutoScroll = root.getElementById('btn-log-autoscroll');
+
+    if (logHeader && logBodyWrap && logToggleIcon) {
+      logHeader.addEventListener('click', () => {
+        const isHidden = logBodyWrap.style.display === 'none';
+        logBodyWrap.style.display = isHidden ? 'block' : 'none';
+        logToggleIcon.textContent = isHidden ? '▲ Collapse' : '▼ Expand';
+        if (isHidden && this._logAutoScroll !== false) {
+          const consoleEl = root.getElementById('log-console');
+          if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+      });
+    }
+
+    if (btnLogClear) {
+      btnLogClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._userClearedLogs = true;
+        this._renderLogs([]);
+      });
+    }
+
+    if (btnLogAutoScroll) {
+      btnLogAutoScroll.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._logAutoScroll = (this._logAutoScroll === undefined) ? false : !this._logAutoScroll;
+        btnLogAutoScroll.textContent = this._logAutoScroll ? 'Auto-scroll: ON' : 'Auto-scroll: OFF';
+        btnLogAutoScroll.style.background = this._logAutoScroll ? '#1E293B' : '#3F3F46';
+        if (this._logAutoScroll) {
+          const consoleEl = root.getElementById('log-console');
+          if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+      });
+    }
   }
 
   _updateScheduleToggleUI(enabled) {
@@ -1467,7 +1627,65 @@ class WeekAquaCard extends HTMLElement {
             0
           );
         }
+
+        // Update BLE Packet Monitor Logs & Queue size badge
+        const root = this.shadowRoot;
+        if (root) {
+          const queueBadge = root.getElementById('log-queue-badge');
+          if (queueBadge) {
+            const qSize = attr.queue_size !== undefined ? attr.queue_size : 0;
+            queueBadge.textContent = `Q: ${qSize}/10`;
+            queueBadge.style.background = qSize > 5 ? '#DC2626' : (qSize > 0 ? '#0284C7' : '#3F3F46');
+          }
+
+          if (attr.ble_logs && Array.isArray(attr.ble_logs)) {
+            if (!this._userClearedLogs) {
+              this._renderLogs(attr.ble_logs);
+            }
+          }
+        }
       }
+    }
+  }
+
+  _renderLogs(logs) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const consoleEl = root.getElementById('log-console');
+    if (!consoleEl) return;
+
+    if (!logs || logs.length === 0) {
+      if (this._userClearedLogs) {
+        consoleEl.innerHTML = '<div style="color: #64748B; padding: 4px 0;">Logs cleared by user.</div>';
+      } else {
+        consoleEl.innerHTML = '<div style="color: #64748B; padding: 4px 0;">No BLE packet activity logged yet.</div>';
+      }
+      return;
+    }
+
+    let html = '';
+    logs.forEach((item) => {
+      const ts = item.ts || '';
+      const event = item.event || 'LOG';
+      const msg = item.msg || '';
+      const hex = item.hex ? `<span class="log-hex">${item.hex}</span>` : '';
+      const qSize = item.q_size !== undefined ? `<span class="log-q-len">[Q: ${item.q_size}/10]</span>` : '';
+
+      html += `
+        <div class="log-line">
+          <span class="log-ts">${ts}</span>
+          <span class="log-tag ${event}">[${event}]</span>
+          ${qSize}
+          <span class="log-msg">${msg}</span>
+          ${hex}
+        </div>
+      `;
+    });
+
+    consoleEl.innerHTML = html;
+
+    if (this._logAutoScroll !== false) {
+      consoleEl.scrollTop = consoleEl.scrollHeight;
     }
   }
 

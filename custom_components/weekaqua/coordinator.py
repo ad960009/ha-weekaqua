@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+from collections import deque
 from datetime import datetime, date, time, timedelta
 import logging
 import time as pytime
@@ -38,6 +39,27 @@ from .const import (
 from .protocol import WeekAquaProtocol, NormalizedSpectrum
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def describe_packet(packet: bytes) -> str:
+    """Return human readable description of a WeekAqua BLE packet."""
+    if not packet or len(packet) < 2:
+        return "Unknown Packet"
+    p0, p1 = packet[0], packet[1]
+    if len(packet) == 8 and p0 == 0xFB and p1 == 0xF9:
+        r, g, b, w, uv = packet[2], packet[3], packet[4], packet[5], packet[6]
+        return f"SetSpectrum (R:{r}% G:{g}% B:{b}% W:{w}% UV:{uv}%)"
+    if p0 == 0xFF:
+        return "Sync RTC Time (0xFF)"
+    if p0 == 0xFD:
+        return f"Set Mode ({p1})"
+    if p0 == 0xFC:
+        return f"Set Preset Curve ({p1})"
+    if p0 == 0xFA:
+        return "Query Device Info (0xFA)"
+    if p0 in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C):
+        return f"Schedule Slot #{p0} Data"
+    return f"Cmd 0x{p0:02X} 0x{p1:02X}"
 
 
 def parse_time_str(time_str: str) -> tuple[int, int, int]:
@@ -136,12 +158,31 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_sent_spectrum: bytes | None = None
         self._last_rtc_sync_date: date | None = None
 
+        # [실시간 패킷 모니터링] 링 버퍼 로그 (최근 60건)
+        self.ble_logs: deque[dict[str, Any]] = deque(maxlen=60)
+
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{self.mac}",
             update_interval=timedelta(seconds=self.schedule_interval),
         )
+
+    def _add_log(self, event: str, msg: str, hex_str: str = "", level: str = "info") -> None:
+        """Add a structured log event for frontend packet monitoring."""
+        now = datetime.now()
+        ts = now.strftime("%H:%M:%S") + f".{int(now.microsecond / 1000):03d}"
+        q_size = self._write_queue.qsize()
+        log_entry = {
+            "ts": ts,
+            "event": event,
+            "msg": msg,
+            "hex": hex_str.upper(),
+            "q_size": q_size,
+            "level": level,
+        }
+        self.ble_logs.append(log_entry)
+        self.async_set_updated_data(self._build_data())
 
     @property
     def ble_name(self) -> str:
@@ -296,6 +337,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 self.is_connected = True
                 _LOGGER.info("Connected to WeekAqua BLE %s (%s) successfully!", self.device_name, self.mac)
+                self._add_log("CONNECT_OK", f"Connected to {self.device_name} ({self.mac})", level="success")
 
                 # [핵심 개선 3] 16비트 vs 128비트 정규화 매칭을 통한 GATT 특성 탐색
                 self._write_char_uuid = None
@@ -327,9 +369,12 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 if not self._write_char_uuid:
                     _LOGGER.error("No writable GATT characteristic found on %s (%s)", self.device_name, self.mac)
+                    self._add_log("CONNECT_ERR", "No writable GATT characteristic found", level="error")
                     return False
 
                 _LOGGER.info("Resolved GATT characteristics for %s: Write=%s, Notify=%s", self.mac, self._write_char_uuid, self._notify_char_uuid)
+                char_tag = str(self._write_char_uuid)[-12:]
+                self._add_log("GATT_READY", f"GATT Write Ready (UUID: ...{char_tag})", level="info")
                 self.async_set_updated_data(self._build_data())
 
                 # Device Registry 동기화 (모델명 및 블루투스 연결자)
@@ -371,6 +416,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             except (BleakError, asyncio.TimeoutError, Exception) as err:
                 _LOGGER.warning("Failed to connect to WeekAqua (%s): %s", self.mac, err)
+                self._add_log("CONNECT_ERR", f"Connection failed: {err}", level="error")
                 self.is_connected = False
                 self._client = None
                 self._write_char_uuid = None
@@ -388,6 +434,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
         _LOGGER.info("WeekAqua (%s) disconnected", self.mac)
+        self._add_log("DISCONNECT", f"BLE disconnected ({self.mac})", level="warn")
         self.async_set_updated_data(self._build_data())
 
     def _on_notify(self, sender: Any, data: bytearray) -> None:
@@ -400,6 +447,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_connect(self) -> bool:
         """Manually trigger connection to WeekAqua BLE device (Forces immediate connect)."""
         self._manual_disconnected = False
+        self._add_log("CONNECT_REQ", f"Manual connect requested for {self.mac}", level="info")
         connected = await self._ensure_connected(force=True)
         if connected:
             self._reset_inactivity_timer()
@@ -408,16 +456,21 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_disconnect(self) -> None:
         """Explicitly disconnect BLE client to release device for other apps."""
         self._manual_disconnected = True
+        self._add_log("DISCONNECT_REQ", f"Disconnecting BLE session ({self.mac})...", level="info")
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
 
         # 대기 중인 패킷 큐를 즉시 비워 워커가 재연결을 시도하지 않도록 방지
+        dropped_count = 0
         while not self._write_queue.empty():
             try:
                 self._write_queue.get_nowait()
                 self._write_queue.task_done()
+                dropped_count += 1
             except (asyncio.QueueEmpty, ValueError):
                 break
+        if dropped_count > 0:
+            self._add_log("QUEUE_FLUSH", f"Flushed {dropped_count} pending packet(s) on disconnect", level="warn")
 
         async with self._connect_lock:
             if self._client and self._client.is_connected:
@@ -446,6 +499,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Inactivity timeout (60s) reached for WeekAqua (%s). Releasing BLE session automatically.",
                 self.mac
             )
+            self._add_log("TIMEOUT_DISCONN", "Inactivity timeout (60s) - Releasing BLE session to save power", level="info")
             await self.async_disconnect()
         except asyncio.CancelledError:
             pass
@@ -456,6 +510,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         - 실시간 스펙트럼 패킷(FB F9)인 경우, 큐에 대기 중인 이전 스펙트럼 패킷을 버리고 항상 최신 1개만 유지.
         - 큐가 꽉 차있을 경우 오래된 패킷을 비워 버퍼 오버플로우 방지.
         """
+        hex_s = packet.hex().upper()
+        desc = describe_packet(packet)
+
         if is_live_spectrum:
             # 큐 안에 이미 대기 중인 패킷 중 실시간 스펙트럼(0xFB 0xF9) 패킷이 있으면 비워줌
             # (최신 스펙트럼 1개만 전송되도록 보장)
@@ -467,6 +524,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # 실시간 스펙트럼 패킷(FB F9)이 아닌 필수 제어 패킷(RTC 동기화 FF, 모드 설정 FD 등)만 보존
                     if not (len(p) == 8 and p[0] == 0xFB and p[1] == 0xF9):
                         temp_list.append(p)
+                    else:
+                        self._add_log("DEDUP", f"Replaced stale spectrum packet in queue ({describe_packet(p)})", hex_str=p.hex(), level="warn")
                 except (asyncio.QueueEmpty, ValueError):
                     break
             for p in temp_list:
@@ -477,15 +536,17 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if self._write_queue.full():
             try:
-                _ = self._write_queue.get_nowait()
+                dropped = self._write_queue.get_nowait()
                 self._write_queue.task_done()
+                self._add_log("QUEUE_DROP", f"Queue full (10/10) - Dropped oldest packet ({describe_packet(dropped)})", hex_str=dropped.hex(), level="warn")
             except (asyncio.QueueEmpty, ValueError):
                 pass
 
         try:
             self._write_queue.put_nowait(packet)
+            self._add_log("ENQUEUE", f"Enqueued: {desc}", hex_str=hex_s, level="info")
         except asyncio.QueueFull:
-            pass
+            self._add_log("QUEUE_ERR", "Failed to enqueue packet: Queue full", hex_str=hex_s, level="error")
 
     async def _process_write_queue(self) -> None:
         """
@@ -495,6 +556,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         while True:
             packet = await self._write_queue.get()
+            hex_s = packet.hex().upper()
+            desc = describe_packet(packet)
+            self._add_log("DEQUEUE", f"Dequeued for BLE TX: {desc}", hex_str=hex_s, level="info")
             try:
                 # 1. 연결 확인 (연결 전용 로직은 _connect_lock이 담당하므로 워커 데드락 없음)
                 connected = await self._ensure_connected()
@@ -502,20 +566,25 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # 2. Zero-Latency RTC Sync: 0xFF 패킷은 송신 직전의 현재 시각으로 재생성
                     if len(packet) == 8 and packet[0] == 0xFF:
                         packet = WeekAquaProtocol.build_rtc_sync_packet(datetime.now())
+                        hex_s = packet.hex().upper()
 
                     # 3. GATT 쓰기 락 점유 후 안전한 순차 전송 (500ms 간격 유지)
                     async with self._write_lock:
                         await self._client.write_gatt_char(self._write_char_uuid, packet, response=False)
-                        _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, packet.hex().upper())
+                        _LOGGER.info("TX -> %s (%s): %s", self.device_name, self.mac, hex_s)
+                        char_tag = str(self._write_char_uuid)[-12:]
+                        self._add_log("WRITE_OK", f"GATT Write OK (UUID: ...{char_tag}) [500ms Paced]", hex_str=hex_s, level="success")
                         await asyncio.sleep(0.5)
                         self._reset_inactivity_timer()
                 else:
                     _LOGGER.debug(
                         "BLE TX skipped for %s (%s) - device offline or not ready. Packet: %s",
-                        self.device_name, self.mac, packet.hex().upper()
+                        self.device_name, self.mac, hex_s
                     )
+                    self._add_log("WRITE_SKIP", "BLE TX Skipped - Device offline/not ready", hex_str=hex_s, level="warn")
             except Exception as ex:
                 _LOGGER.error("BLE TX error on %s (%s): %s", self.device_name, self.mac, ex)
+                self._add_log("WRITE_ERR", f"GATT Write Exception: {ex}", hex_str=hex_s, level="error")
             finally:
                 self._write_queue.task_done()
 
@@ -693,6 +762,8 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule_enabled": self.schedule_enabled,
             "schedule_points": self.schedule_points,
             "schedule_meta": self.schedule_meta,
+            "ble_logs": list(self.ble_logs),
+            "queue_size": self._write_queue.qsize(),
         }
 
     # --- Public Control Methods (Called by Entities & Services) ---

@@ -190,6 +190,8 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             "has_uv": self._has_uv(),
             "has_6ch": self._has_6ch(),
             "max_slots": self._max_slots(),
+            "ble_logs": list(self.coordinator.ble_logs),
+            "queue_size": self.coordinator._write_queue.qsize(),
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
