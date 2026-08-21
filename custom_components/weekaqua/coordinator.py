@@ -845,28 +845,49 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:
                 _LOGGER.debug("Failed to persist state to config entry: %s", err)
 
+    def is_in_night_hold(self, target_time: time | None = None) -> bool:
+        """Return True if the given time (or now) falls in the night hold/off interval."""
+        if not self.schedule_points or len(self.schedule_points) < 2:
+            return True
+        t = target_time or datetime.now().time()
+        now_sec = t.hour * 3600 + t.minute * 60 + t.second
+        start_h, start_m, start_s = parse_time_str(self.schedule_points[0]["time"])
+        end_h, end_m, end_s = parse_time_str(self.schedule_points[-1]["time"])
+        start_sec = start_h * 3600 + start_m * 60 + start_s
+        end_sec = end_h * 3600 + end_m * 60 + end_s
+        if end_sec <= start_sec:
+            return end_sec <= now_sec < start_sec
+        return now_sec < start_sec or now_sec >= end_sec
+
     async def async_set_moonlight_enabled(self, enabled: bool) -> None:
-        """Enable or disable night moonlight and send packet immediately."""
+        """Enable or disable night moonlight and send packet immediately if in night period."""
+        self._manual_disconnected = False
         self.keep_moonlight = enabled
         _LOGGER.info("Night moonlight %s for %s", "ENABLED" if enabled else "DISABLED", self.mac)
 
         if self.schedule_enabled:
-            # Re-evaluate schedule spectrum at current time
-            target = self.calculate_interpolated_spectrum(datetime.now().time())
-            self.current_r = target.r
-            self.current_g = target.g
-            self.current_b = target.b
-            self.current_w = target.w
-            self.current_uv = target.uv
-            self.current_v = target.violet
+            if self.is_in_night_hold():
+                target = self.calculate_interpolated_spectrum(datetime.now().time())
+                self.current_r = target.r
+                self.current_g = target.g
+                self.current_b = target.b
+                self.current_w = target.w
+                self.current_uv = target.uv
+                self.current_v = target.violet
 
-            packet = WeekAquaProtocol.build_live_spectrum_packet(
-                self.current_r, self.current_g, self.current_b, self.current_w,
-                self.current_uv, self.current_v, self.model_code,
-                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-            )
-            self._last_sent_spectrum = packet
-            if not self._manual_disconnected:
+                if self._current_mode != 1:
+                    self._current_mode = 1
+                    for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+                        is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+                    ):
+                        await self.enqueue_packet(mode_pkt)
+
+                packet = WeekAquaProtocol.build_live_spectrum_packet(
+                    self.current_r, self.current_g, self.current_b, self.current_w,
+                    self.current_uv, self.current_v, self.model_code,
+                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+                )
+                self._last_sent_spectrum = packet
                 await self.enqueue_packet(packet, is_live_spectrum=True)
         else:
             # Direct manual moonlight control
@@ -877,27 +898,35 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self._build_data())
 
     async def async_set_moonlight_brightness(self, brightness: float) -> None:
-        """Set moonlight brightness percentage (1.0 ~ 20.0%) and update if active."""
+        """Set moonlight brightness percentage (1.0 ~ 20.0%) and update immediately if active and in night period."""
+        self._manual_disconnected = False
         self.moonlight_brightness = max(1.0, min(20.0, float(brightness)))
         _LOGGER.info("Moonlight brightness set to %.1f%% for %s", self.moonlight_brightness, self.mac)
 
         if self.keep_moonlight:
             if self.schedule_enabled:
-                target = self.calculate_interpolated_spectrum(datetime.now().time())
-                self.current_r = target.r
-                self.current_g = target.g
-                self.current_b = target.b
-                self.current_w = target.w
-                self.current_uv = target.uv
-                self.current_v = target.violet
+                if self.is_in_night_hold():
+                    target = self.calculate_interpolated_spectrum(datetime.now().time())
+                    self.current_r = target.r
+                    self.current_g = target.g
+                    self.current_b = target.b
+                    self.current_w = target.w
+                    self.current_uv = target.uv
+                    self.current_v = target.violet
 
-                packet = WeekAquaProtocol.build_live_spectrum_packet(
-                    self.current_r, self.current_g, self.current_b, self.current_w,
-                    self.current_uv, self.current_v, self.model_code,
-                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-                )
-                self._last_sent_spectrum = packet
-                if not self._manual_disconnected:
+                    if self._current_mode != 1:
+                        self._current_mode = 1
+                        for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+                            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+                        ):
+                            await self.enqueue_packet(mode_pkt)
+
+                    packet = WeekAquaProtocol.build_live_spectrum_packet(
+                        self.current_r, self.current_g, self.current_b, self.current_w,
+                        self.current_uv, self.current_v, self.model_code,
+                        is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+                    )
+                    self._last_sent_spectrum = packet
                     await self.enqueue_packet(packet, is_live_spectrum=True)
             else:
                 await self.async_set_spectrum(0.0, 0.0, self.moonlight_brightness, 0.0, 0.0, 0.0, disable_schedule=False)
