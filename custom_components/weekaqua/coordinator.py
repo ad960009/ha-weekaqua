@@ -718,6 +718,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_uv = target.uv
             self.current_v = target.violet
 
+            # HA 재시작 또는 모드 복귀 시 24시간 개방 시퀀스 선행 송신
+            if self._current_mode != 1 and not self._manual_disconnected:
+                self._current_mode = 1
+                for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+                    is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+                ):
+                    await self.enqueue_packet(mode_pkt)
+
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
                 self.current_uv, self.current_v, self.model_code,
@@ -748,6 +756,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_w = target.w
             self.current_uv = target.uv
             self.current_v = target.violet
+
+            if self._current_mode != 1:
+                self._current_mode = 1
+                for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
+                    is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
+                ):
+                    await self.enqueue_packet(mode_pkt)
+
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
                 self.current_uv, self.current_v, self.model_code,
@@ -756,6 +772,16 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_spectrum = packet
             if not self._manual_disconnected:
                 await self.enqueue_packet(packet, is_live_spectrum=True)
+        if self._entry:
+            try:
+                new_data = {
+                    **self._entry.data,
+                    "schedule_enabled": enabled,
+                }
+                self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+            except Exception as err:
+                _LOGGER.debug("Failed to persist schedule_enabled to config entry: %s", err)
+
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code
