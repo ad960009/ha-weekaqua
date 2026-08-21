@@ -516,9 +516,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._reset_inactivity_timer()
         return connected
 
-    async def async_disconnect(self) -> None:
-        """Explicitly disconnect BLE client to release device for other apps."""
-        self._manual_disconnected = True
+    async def async_disconnect(self, manual: bool = True) -> None:
+        """Disconnect BLE client. Sets _manual_disconnected only if user-initiated."""
+        if manual:
+            self._manual_disconnected = True
         self._add_log("DISCONNECT_REQ", f"Disconnecting BLE session ({self.mac})...", level="info")
         if self._auto_disconnect_task:
             self._auto_disconnect_task.cancel()
@@ -545,7 +546,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._client = None
             self._write_char_uuid = None
             self._notify_char_uuid = None
-            _LOGGER.info("WeekAqua (%s) manually/automatically disconnected.", self.mac)
+            _LOGGER.info("WeekAqua (%s) %s disconnected.", self.mac, "manually" if manual else "automatically")
             self.async_set_updated_data(self._build_data())
 
     def _reset_inactivity_timer(self) -> None:
@@ -563,7 +564,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.mac
             )
             self._add_log("TIMEOUT_DISCONN", "Inactivity timeout (60s) - Releasing BLE session to save power", level="info")
-            await self.async_disconnect()
+            await self.async_disconnect(manual=False)
         except asyncio.CancelledError:
             pass
 
@@ -753,10 +754,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
 
-            if not self._manual_disconnected:
-                if packet != self._last_sent_spectrum:
-                    self._last_sent_spectrum = packet
-                    await self._send_live_spectrum_with_mode(packet)
+            if packet != self._last_sent_spectrum:
+                self._last_sent_spectrum = packet
+                self._manual_disconnected = False
+                await self._send_live_spectrum_with_mode(packet)
 
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
