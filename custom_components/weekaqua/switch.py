@@ -25,7 +25,49 @@ async def async_setup_entry(
     async_add_entities([
         WeekAquaScheduleSwitch(coordinator),
         WeekAquaMoonlightSwitch(coordinator),
+        WeekAquaBleConnectionSwitch(coordinator),
     ])
+
+
+class WeekAquaBleConnectionSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity):
+    """Switch to monitor and manually connect/disconnect Bluetooth session."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: WeekAquaCoordinator) -> None:
+        """Initialize switch."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.mac}_ble_connection"
+        self._attr_name = "Bluetooth Connection"
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon indicating connection state."""
+        return "mdi:bluetooth" if self.coordinator.is_connected else "mdi:bluetooth-off"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.mac)},
+            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
+            name=self.coordinator.device_name,
+            manufacturer="WeekAqua",
+            model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if BLE session is connected."""
+        return self.coordinator.is_connected
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Connect BLE session."""
+        await self.coordinator.async_connect()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disconnect BLE session."""
+        await self.coordinator.async_disconnect()
 
 
 class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity):

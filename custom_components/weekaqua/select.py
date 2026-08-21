@@ -1,14 +1,10 @@
-"""Sensor platform for WeekAqua."""
+"""Select platform for WeekAqua."""
 
 from __future__ import annotations
 from typing import Any
 
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity import DeviceInfo
@@ -18,32 +14,34 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import WeekAquaCoordinator
 
+MODE_SCHEDULE = "Schedule Mode (Mode 2)"
+MODE_LIVE = "Live Mode (Mode 1)"
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up WeekAqua sensor entities."""
+    """Set up WeekAqua select entities."""
     coordinator: WeekAquaCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([
-        WeekAquaPowerLoadSensor(coordinator),
+        WeekAquaModeSelect(coordinator),
     ])
 
 
-class WeekAquaPowerLoadSensor(CoordinatorEntity[WeekAquaCoordinator], SensorEntity):
-    """Total lighting power load percentage sensor (0.0 ~ 100.0%)."""
+class WeekAquaModeSelect(CoordinatorEntity[WeekAquaCoordinator], SelectEntity):
+    """Dropdown selector for WeekAqua hardware operating mode."""
 
     _attr_has_entity_name = True
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:gauge"
+    _attr_icon = "mdi:tune-vertical"
+    _attr_options = [MODE_SCHEDULE, MODE_LIVE]
 
     def __init__(self, coordinator: WeekAquaCoordinator) -> None:
-        """Initialize power load sensor."""
+        """Initialize mode select entity."""
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.mac}_power_load"
-        self._attr_name = "Total Power Load"
+        self._attr_unique_id = f"{coordinator.mac}_operation_mode"
+        self._attr_name = "Operation Mode"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -57,6 +55,13 @@ class WeekAquaPowerLoadSensor(CoordinatorEntity[WeekAquaCoordinator], SensorEnti
         )
 
     @property
-    def native_value(self) -> float:
-        """Return current total power percentage."""
-        return self.coordinator.total_power_pct
+    def current_option(self) -> str:
+        """Return current active hardware operating mode."""
+        return MODE_SCHEDULE if self.coordinator._current_mode == 2 else MODE_LIVE
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the operating mode."""
+        if option == MODE_SCHEDULE:
+            await self.coordinator.async_activate_schedule_mode()
+        else:
+            await self.coordinator.async_activate_live_mode()

@@ -11,26 +11,34 @@ Home Assistant(HA) 환경에서 **WeekAqua 수조 조명**을 제어할 수 있�
 1. **무제한 단계 동적 스케줄러 (Unlimited Steps Dynamic Scheduler)**:
    - 5개, 8개, 12개 슬롯 제한 없이 사용자가 원하는 만큼(10개, 20개, 50개 등) 시간-스펙트럼 포인트를 추가/삭제 가능
    - Home Assistant가 매 분마다 현재 시각의 스펙트럼을 **부드러운 선형 보간(Linear Interpolation)**으로 계산하여 실시간 패킷(`FBF9...`) 송신
-   - MCU 펌웨어의 `FEF9` 커맨드 충돌 위험이 전혀 없는 100% 안전한 제어 방식
+   - HA 재부팅 시에도 스케줄 활성화 상태 및 시간대별 밝기를 100% 온전하게 복원
 2. **스마트 60초 무활동 자동 연결 해제 (Inactivity Auto-Disconnect)**:
    - 패킷 전송 후 60초 동안 추가 조작이 없으면 BLE 세션을 자동으로 안전하게 해제
    - 스마트폰 공식 WeekAqua 앱을 켤 때 1:1 블루투스 점유 충돌 없이 언제든지 자유롭게 사용 가능
-3. **무지연 실시간 RTC 동기화 (Zero-Latency Dynamic RTC Sync)**:
+3. **단일 블루투스 연결 스위치 (`switch.ble_connection`)**:
+   - 불필요한 다중 버튼을 제거하고, 단 1개의 토글 스위치로 실시간 연결 상태 모니터링 및 수동 연결/해제 제어
+4. **무지연 실시간 RTC 동기화 (Zero-Latency Dynamic RTC Sync)**:
    - 매일 자정(00:00) 조명 내부 RTC 시계를 HA 초정밀 시각으로 자동 재동기화
    - 무선 연결 지연 시간(1~3초)을 상쇄하기 위해 실제 전송 직전 1밀리초 시점의 `datetime.now()`로 동적 인코딩하여 오차 0초 보정
-4. **ESPHome Bluetooth Proxy 완벽 지원**:
+5. **ESPHome Bluetooth Proxy 완벽 지원**:
    - HA 서버와 어항의 거리가 멀어도 방마다 설치된 ESP32 Bluetooth Proxy를 통해 원격으로 블루투스 패킷 송수신
-5. **100% 전력 안전 2중 가드 (Max Power Limit Dual-Layer Guard)**:
+6. **100% 전력 안전 2중 가드 (Max Power Limit Dual-Layer Guard)**:
    - 안드로이드 공식 APK 전력 공식 기반 채널 비율 보존 자동 정규화(Normalize) 내장
    - $99.8\%$ 안전 스케일 팩터 및 Safety While Loop로 부동소수점 반올림 누적 오차($100.1\%$)를 원천 차단
-6. **WPF 룩앤필의 Lovelace 커스텀 카드 (`weekaqua-card.js`)**:
+7. **WPF 룩앤필의 Lovelace 커스텀 카드 (`weekaqua-card.js`)**:
    - 다크 테마, 채널별 컬러 슬라이더(R, G, B, W, UV, Violet, Fan)
    - 실시간 총 전력 부하(%) 게이지 프로그레스 바
    - **24시간 인터랙티브 SVG 타임라인 그래프** 시각화
    - 원클릭 프리셋 버튼 (수초, 어항, 산호, 💡 Max 100%, 심야 달빛 등)
-   - 수동 `⚡ Connect` / `❌ Disconnect` 버튼 및 실시간 연결 상태 배지
-7. **스마트 플러그 전력 모니터링**:
-   - GATT Notify 특성을 통한 누적 소비전력량(kWh) 실시간 디코딩 및 HA 에너지 대시보드 연동
+   - 실시간 연결 상태 스위치 및 모드 토글 배지
+
+---
+
+> [!WARNING]
+> ### ⚠️ Live 모드 (Mode 1) 하드웨어 동작 특성 및 불안정성 안내
+> * **내부 타이머 의존성**: WeekAqua 조명 MCU는 실시간 라이브 모드(`Mode 1 / FDF1`) 동작 시 하드웨어 내부 타이머(`FEF9` 또는 `FEEF`)와 결합되어 작동합니다.
+> * **소등(암전) 발생 가능성**: 타이머 창이 24시간(`00:00 ~ 24:00`)으로 상시 개방되어 있지 않거나 펌웨어 버전에 따라, 라이브 모드 전환 및 색상 전송 시 조명이 일시적으로 소등(꺼짐)되는 등 동작이 불안정할 수 있습니다.
+> * **권장 운용 방식**: 본 통합구성요소는 라이브 모드 진입 시 `FEF9 (00:00~24:00)` 24시간 타이머 개방 시퀀스를 자동 선행 전송하여 이를 최대한 보정합니다. 하지만 조명 펌웨어의 고유 동작 특성을 감안할 때, 가장 안정적인 조명 운용을 위해서는 **HA 다이나믹 스케줄러(Dynamic Schedule)** 또는 **하드웨어 8구간 스케줄(Mode 2)**을 사용하시는 것을 강력히 권장합니다.
 
 ---
 
@@ -44,13 +52,13 @@ ha-weekaqua/
 │       ├── manifest.json              # HACS / HA 메타데이터
 │       ├── const.py                   # UUID, 모델 코드, 프리셋 상수
 │       ├── protocol.py                # Python WeekAqua BLE 프로토콜 엔진
-│       ├── coordinator.py             # BLE 통신 & 무제한 스케줄 보간 엔진
+│       ├── coordinator.py             # BLE 통신 & 상태 영구 복원 & 무제한 스케줄 엔진
 │       ├── config_flow.py             # BLE 기기 자동 검색(Discovery) 플로우
 │       ├── light.py                   # Master Light Entity
 │       ├── number.py                  # 채널별 백분율 슬라이더 (R/G/B/W/UV/V/Fan)
-│       ├── button.py                  # 수동 Connect / Disconnect 버튼
+│       ├── switch.py                  # 다이나믹 스케줄러, 야간 달빛, BLE 연결 스위치
 │       ├── sensor.py                  # 전력량(kWh), 소비전력 부하(%) 센서
-│       ├── switch.py                  # 무제한 스케줄러 On/Off 토글
+│       ├── button.py                  # 스케줄 모드 / 라이브 모드 전환 버튼
 │       ├── services.yaml              # 커스텀 서비스 명세
 │       └── translations/              # 다국어 지원 (ko, en)
 ├── dist/

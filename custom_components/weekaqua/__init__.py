@@ -23,7 +23,7 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.SWITCH,
-    Platform.BUTTON,
+    Platform.SELECT,
 ]
 
 # Service Schemas

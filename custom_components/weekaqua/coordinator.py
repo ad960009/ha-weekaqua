@@ -145,20 +145,24 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_points: list[dict[str, Any]] = entry_data.get(CONF_SCHEDULE, self._get_default_schedule())
         self.schedule_meta: dict[str, Any] = entry_data.get("schedule_meta", {})
         self.schedule_enabled: bool = entry_data.get("schedule_enabled", False)
+        self._current_mode: int = entry_data.get("current_mode", 0)  # 0: Unknown, 1: Live Manual Spectrum Mode, 2: Hardware Ramp Schedule Mode
 
-        # Current live channel state (0.0 ~ 100.0)
-        self.current_r: float = 0.0
-        self.current_g: float = 0.0
-        self.current_b: float = 0.0
-        self.current_w: float = 0.0
-        self.current_uv: float = 0.0
-        self.current_v: float = 0.0
-        self.current_fan: float = 50.0
+        # Current live channel state (Persisted across restarts, 0.0 ~ 100.0)
+        self.current_r: float = float(entry_data.get("current_r", 0.0))
+        self.current_g: float = float(entry_data.get("current_g", 0.0))
+        self.current_b: float = float(entry_data.get("current_b", 0.0))
+        self.current_w: float = float(entry_data.get("current_w", 0.0))
+        self.current_uv: float = float(entry_data.get("current_uv", 0.0))
+        self.current_v: float = float(entry_data.get("current_v", 0.0))
+        self.current_fan: float = float(entry_data.get("current_fan", 50.0))
 
         # Sensor state
         self.is_connected: bool = False
         self.power_kwh: float = 0.0
-        self.total_power_pct: float = 0.0
+        self.total_power_pct: float = WeekAquaProtocol.calculate_total_power_percent(
+            self.current_r, self.current_g, self.current_b, self.current_w,
+            self.current_uv, self.current_v, self.model_code
+        )
 
         # Bleak Client & 독립적 락(Lock) 구조
         # [핵심 개선 1] 데드락 방지를 위해 연결 전용 락과 쓰기 전용 락 분리
@@ -810,6 +814,28 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "queue_size": self._write_queue.qsize(),
         }
 
+    def _persist_state(self) -> None:
+        """Persist dynamic states to ConfigEntry storage across HA reboots."""
+        if self._entry:
+            try:
+                new_data = {
+                    **self._entry.data,
+                    "schedule_enabled": self.schedule_enabled,
+                    "current_mode": self._current_mode,
+                    "current_r": self.current_r,
+                    "current_g": self.current_g,
+                    "current_b": self.current_b,
+                    "current_w": self.current_w,
+                    "current_uv": self.current_uv,
+                    "current_v": self.current_v,
+                    "current_fan": self.current_fan,
+                    CONF_SCHEDULE: self.schedule_points,
+                    "schedule_meta": self.schedule_meta,
+                }
+                self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+            except Exception as err:
+                _LOGGER.debug("Failed to persist state to config entry: %s", err)
+
     # --- Public Control Methods (Called by Entities & Services) ---
 
     async def async_set_spectrum(
@@ -850,6 +876,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._last_sent_spectrum = packet
         await self.enqueue_packet(packet, is_live_spectrum=True)
+        self._persist_state()
         self.async_set_updated_data(self._build_data())
 
     async def async_set_fan_speed(self, fan_pct: float) -> None:
@@ -858,6 +885,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_fan = max(0.0, min(100.0, float(fan_pct)))
         packet = WeekAquaProtocol.build_fan_speed_packet(self.current_fan)
         await self.enqueue_packet(packet)
+        self._persist_state()
         self.async_set_updated_data(self._build_data())
 
     async def async_set_schedule(
@@ -872,18 +900,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.schedule_meta = {**self.schedule_meta, **{k: v for k, v in meta.items() if v is not None}}
         self.schedule_enabled = True
 
-        # Persist to ConfigEntry storage across HA restarts
-        if self._entry:
-            try:
-                new_data = {
-                    **self._entry.data,
-                    CONF_SCHEDULE: points,
-                    "schedule_meta": self.schedule_meta,
-                }
-                self.hass.config_entries.async_update_entry(self._entry, data=new_data)
-            except Exception as err:
-                _LOGGER.debug("Failed to persist schedule to config entry: %s", err)
-
+        self._persist_state()
         self.async_set_updated_data(self._build_data())
         await self.async_refresh()
 
@@ -902,6 +919,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             await self.enqueue_packet(mode_pkt)
 
+        self._persist_state()
         self._add_log("SET_MODE", "Switched to Hardware Schedule Mode (Mode 2 / FDF2)", level="info")
         self.async_set_updated_data(self._build_data())
 
@@ -911,7 +929,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_enabled = False
         self._current_mode = 1
 
-        # 1. Transmit Mode 1 unlock sequence (FDF1, FDF4, FEEF, F6F1)
+        # 1. Transmit Mode 1 unlock sequence (FEF9 24h + FDF1)
         for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
             is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
         ):
@@ -926,6 +944,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_sent_spectrum = packet
         await self.enqueue_packet(packet, is_live_spectrum=True)
 
+        self._persist_state()
         self._add_log("SET_MODE", "Switched to Manual Live Spectrum Mode (Mode 1 / FDF1)", level="info")
         self.async_set_updated_data(self._build_data())
 
@@ -982,6 +1001,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ramp_labels = ["0h (Instant)", "0.5h (30m)", "1.0h (60m)", "1.5h (90m)", "2.0h (120m)", "2.5h (150m)"]
         ramp_lbl = ramp_labels[ramp_idx] if 0 <= ramp_idx < len(ramp_labels) else f"{ramp_idx}"
         self._add_log("SET_TIMER", f"Set Sunrise/Sunset ({start_h:02d}:{start_m:02d}~{end_h:02d}:{end_m:02d}, Ramp: {ramp_lbl})", level="info")
+        self._persist_state()
         self.async_set_updated_data(self._build_data())
 
     async def async_set_hardware_timer(
