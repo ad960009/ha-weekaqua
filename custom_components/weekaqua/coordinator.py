@@ -903,6 +903,59 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._add_log("SET_MODE", "Switched to Manual Live Spectrum Mode (Mode 1 / FDF1)", level="info")
         self.async_set_updated_data(self._build_data())
 
+    async def async_set_sunrise_sunset_timer(
+        self,
+        start_time_str: str,
+        end_time_str: str,
+        r: float,
+        g: float,
+        b: float,
+        w: float,
+        uv: float = 0.0,
+        violet: float = 0.0,
+        ramp_idx: int = 2
+    ) -> None:
+        """Send dedicated Sunrise/Sunset Ramp Timer to WeekAqua MCU (FEF9 + FBF9/FBEF + FDF1)."""
+        self._manual_disconnected = False
+        self.schedule_enabled = False
+        self._current_mode = 1
+
+        start_h, start_m, _ = parse_time_str(start_time_str)
+        end_h, end_m, _ = parse_time_str(end_time_str)
+
+        # 1. RTC Clock Sync
+        await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(datetime.now()))
+
+        # 2. Sunrise & Sunset Timer Packet (0xFE 0xF9)
+        timer_pkt = WeekAquaProtocol.build_sunrise_sunset_packet(
+            start_h, start_m, end_h, end_m, ramp_idx=ramp_idx, enabled=True
+        )
+        await self.enqueue_packet(timer_pkt)
+
+        # 3. Target Daytime Spectrum Packet (0xFB 0xEF / 0xFB 0xF9)
+        norm = WeekAquaProtocol.normalize_spectrum_to_max_power(r, g, b, w, uv, violet, self.model_code)
+        self.current_r = norm.r
+        self.current_g = norm.g
+        self.current_b = norm.b
+        self.current_w = norm.w
+        self.current_uv = norm.uv
+        self.current_v = norm.violet
+        spec_pkt = WeekAquaProtocol.build_live_spectrum_packet(
+            norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet,
+            self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+        )
+        self._last_sent_spectrum = spec_pkt
+        await self.enqueue_packet(spec_pkt)
+
+        # 4. Activate Mode 1 (Sunrise/Sunset Mode)
+        mode_pkt = WeekAquaProtocol.build_mode_packet(1)
+        await self.enqueue_packet(mode_pkt)
+
+        ramp_labels = ["0h (Instant)", "0.5h (30m)", "1.0h (60m)", "1.5h (90m)", "2.0h (120m)", "2.5h (150m)"]
+        ramp_lbl = ramp_labels[ramp_idx] if 0 <= ramp_idx < len(ramp_labels) else f"{ramp_idx}"
+        self._add_log("SET_TIMER", f"Set Sunrise/Sunset ({start_h:02d}:{start_m:02d}~{end_h:02d}:{end_m:02d}, Ramp: {ramp_lbl})", level="info")
+        self.async_set_updated_data(self._build_data())
+
     async def async_set_hardware_timer(
         self,
         start_time_str: str,

@@ -678,7 +678,8 @@ class WeekAquaCard extends HTMLElement {
           </div>
           <div class="tabs">
             <button class="tab-btn active" id="tab-live">Live</button>
-            <button class="tab-btn" id="tab-sched">Unlimited Schedule</button>
+            <button class="tab-btn" id="tab-timer">Sunrise & Sunset</button>
+            <button class="tab-btn" id="tab-sched">Custom Schedule</button>
           </div>
         </div>
 
@@ -766,7 +767,60 @@ class WeekAquaCard extends HTMLElement {
           </div>
         </div>
 
-        <!-- Tab 2: Unlimited Schedule Editor -->
+        <!-- Tab 2: Sunrise & Sunset Quick Ramp Timer -->
+        <div id="panel-timer" style="display: none;">
+          <div style="background: #27272A; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #3F3F46;">
+            <div style="font-size: 13px; font-weight: 700; color: #F59E0B; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span>☀️</span>
+                <span>Sunrise & Sunset Ramp Timer (일출/일몰 모드)</span>
+              </div>
+              <span class="mode-badge" style="background: rgba(245, 158, 11, 0.2); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.4);">Mode 1 Timer</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div>
+                <label style="font-size: 11px; color: #A1A1AA; font-weight: 600; display: block; margin-bottom: 4px;">🌅 Start Time (점등/일출 시작)</label>
+                <input type="text" id="timer-start-time" value="08:00" placeholder="08:00" style="width: 100%; background: #18181B; border: 1px solid #3F3F46; color: #FFF; padding: 6px 8px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+              </div>
+              <div>
+                <label style="font-size: 11px; color: #A1A1AA; font-weight: 600; display: block; margin-bottom: 4px;">🌇 End Time (소등/일몰 완료)</label>
+                <input type="text" id="timer-end-time" value="18:00" placeholder="18:00" style="width: 100%; background: #18181B; border: 1px solid #3F3F46; color: #FFF; padding: 6px 8px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+              </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <label style="font-size: 11px; color: #A1A1AA; font-weight: 600; display: block; margin-bottom: 4px;">⏳ Ramp Duration (램프 시간 - 서서히 밝아지고 어두워짐)</label>
+              <select id="timer-ramp-select" style="width: 100%; background: #18181B; border: 1px solid #3F3F46; color: #FFF; padding: 6px 8px; border-radius: 6px; font-size: 12px; box-sizing: border-box;">
+                <option value="0">0 Hours (즉시 점등/소등)</option>
+                <option value="1">0.5 Hours (30분 램프업/다운)</option>
+                <option value="2" selected>1.0 Hours (60분 램프업/다운 - 기본 권장)</option>
+                <option value="3">1.5 Hours (90분 램프업/다운)</option>
+                <option value="4">2.0 Hours (120분 램프업/다운)</option>
+                <option value="5">2.5 Hours (150분 램프업/다운)</option>
+              </select>
+            </div>
+
+            <div style="margin-bottom: 14px;">
+              <label style="font-size: 11px; color: #A1A1AA; font-weight: 600; display: block; margin-bottom: 6px;">🎨 Daytime Target Spectrum (주간 최고 목표 스펙트럼)</label>
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px;" id="timer-presets-grid">
+                <button class="preset-btn" data-tp="FishMixed" style="border-color: #3B82F6; background: #1E3A8A; color: #FFF;">🐠 Mixed</button>
+                <button class="preset-btn" data-tp="GreenGrass">🌿 Green</button>
+                <button class="preset-btn" data-tp="RedGrass">🍁 Red</button>
+                <button class="preset-btn" data-tp="Shrimp">🦐 Shrimp</button>
+              </div>
+              <div style="font-size: 11px; color: #71717A; line-height: 1.4;">
+                설정한 시작 시각에 0%부터 램프 시간 동안 서서히 밝아져 목표 스펙트럼에 도달하고, 종료 시각 전 램프 시간 동안 서서히 어두워집니다.
+              </div>
+            </div>
+
+            <button id="btn-apply-sunrise" class="btn-sched" style="background: linear-gradient(135deg, #D97706, #B45309); width: 100%; padding: 10px; font-weight: 700; font-size: 13px;">
+              ☀️ Apply Sunrise & Sunset Timer to Light
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab 3: Custom Schedule Editor -->
         <div id="panel-sched" class="sched-wrap">
           <!-- Dynamic Schedule Enable/Disable Toggle Bar -->
           <div class="sched-status-bar">
@@ -946,24 +1000,91 @@ class WeekAquaCard extends HTMLElement {
 
     // Tabs
     const tabLive = root.getElementById('tab-live');
+    const tabTimer = root.getElementById('tab-timer');
     const tabSched = root.getElementById('tab-sched');
     const panelLive = root.getElementById('panel-live');
+    const panelTimer = root.getElementById('panel-timer');
     const panelSched = root.getElementById('panel-sched');
 
-    tabLive.addEventListener('click', () => {
-      tabLive.classList.add('active');
-      tabSched.classList.remove('active');
-      panelLive.style.display = 'block';
-      panelSched.classList.remove('active');
+    const switchTab = (tab) => {
+      [tabLive, tabTimer, tabSched].forEach(t => t && t.classList.remove('active'));
+      [panelLive, panelTimer, panelSched].forEach(p => {
+        if (p) {
+          p.style.display = 'none';
+          p.classList.remove('active');
+        }
+      });
+      if (tab === 'live') {
+        if (tabLive) tabLive.classList.add('active');
+        if (panelLive) panelLive.style.display = 'block';
+      } else if (tab === 'timer') {
+        if (tabTimer) tabTimer.classList.add('active');
+        if (panelTimer) panelTimer.style.display = 'block';
+      } else if (tab === 'sched') {
+        if (tabSched) tabSched.classList.add('active');
+        if (panelSched) {
+          panelSched.style.display = 'block';
+          panelSched.classList.add('active');
+        }
+        this._renderCurve();
+      }
+    };
+
+    if (tabLive) tabLive.addEventListener('click', () => switchTab('live'));
+    if (tabTimer) tabTimer.addEventListener('click', () => switchTab('timer'));
+    if (tabSched) tabSched.addEventListener('click', () => switchTab('sched'));
+
+    // Sunrise/Sunset Preset picker
+    let selectedTimerPreset = 'FishMixed';
+    root.querySelectorAll('#timer-presets-grid .preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        root.querySelectorAll('#timer-presets-grid .preset-btn').forEach(b => {
+          b.style.background = '#27272A';
+          b.style.borderColor = '#3F3F46';
+          b.style.color = '#E4E4E7';
+        });
+        btn.style.background = '#1E3A8A';
+        btn.style.borderColor = '#3B82F6';
+        btn.style.color = '#FFFFFF';
+        selectedTimerPreset = btn.dataset.tp || 'FishMixed';
+      });
     });
 
-    tabSched.addEventListener('click', () => {
-      tabSched.classList.add('active');
-      tabLive.classList.remove('active');
-      panelLive.style.display = 'none';
-      panelSched.classList.add('active');
-      this._renderCurve();
-    });
+    // Sunrise/Sunset Apply Button
+    const btnApplySunrise = root.getElementById('btn-apply-sunrise');
+    if (btnApplySunrise) {
+      btnApplySunrise.addEventListener('click', () => {
+        const startTime = root.getElementById('timer-start-time')?.value?.trim() || '08:00';
+        const endTime = root.getElementById('timer-end-time')?.value?.trim() || '18:00';
+        const rampIdx = parseInt(root.getElementById('timer-ramp-select')?.value || '2', 10);
+
+        btnApplySunrise.textContent = '⏳ Sending Sunrise/Sunset Timer...';
+        btnApplySunrise.style.background = '#059669';
+
+        if (this._hass) {
+          this._hass.callService('weekaqua', 'set_timer', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+            start_time: startTime,
+            end_time: endTime,
+            ramp_index: rampIdx,
+            preset: selectedTimerPreset,
+          });
+        }
+        this._setConnectionStatus(true);
+        this._updateModeUI(1);
+
+        setTimeout(() => {
+          if (btnApplySunrise) {
+            btnApplySunrise.textContent = '✅ Sunrise & Sunset Timer Sent to Light!';
+            setTimeout(() => {
+              btnApplySunrise.textContent = '☀️ Apply Sunrise & Sunset Timer to Light';
+              btnApplySunrise.style.background = 'linear-gradient(135deg, #D97706, #B45309)';
+            }, 3000);
+          }
+        }, 1200);
+      });
+    }
 
     // Operation Mode Switching (Live Mode 1 <-> Schedule Mode 2)
     const btnModeLive = root.getElementById('btn-mode-live');

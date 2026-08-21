@@ -208,7 +208,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 uv = call.data.get("white", 80.0) if is_4ch else call.data.get("uv", 0.0)
                 violet = call.data.get("violet", 0.0)
 
-            await coord.async_set_hardware_timer(
+            await coord.async_set_sunrise_sunset_timer(
                 start_time, end_time, r, g, b, w, uv, violet, ramp_idx=ramp_idx
             )
 
