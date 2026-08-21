@@ -104,7 +104,7 @@ class TestWeekAquaProtocol(unittest.TestCase):
         self.assertEqual(seq[0].hex().upper(), "FDF1555555555555")
         self.assertEqual(seq[1].hex().upper(), "FDF4555555555555")
         self.assertEqual(seq[2].hex().upper(), "FEEF000023590000")
-        self.assertEqual(seq[3].hex().upper(), "F6F2555555555555")
+        self.assertEqual(seq[3].hex().upper(), "F6F1555555555555")
 
     def test_schedule_mode_sequence_4ch(self):
         seq = WeekAquaProtocol.build_schedule_mode_sequence(is_4ch_rgb_uv=True)

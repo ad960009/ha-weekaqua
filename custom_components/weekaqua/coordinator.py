@@ -78,8 +78,8 @@ def describe_packet(packet: bytes) -> str:
         pct = round(WeekAquaProtocol.byte_to_percent(p1))
         return f"SetFanSpeed [FC] ({pct}%)"
     if p0 == 0xF6:
-        state = "ON" if p1 == 0xF1 else ("OFF (Manual)" if p1 == 0xF2 else f"0x{p1:02X}")
-        return f"TimerSwitch [F6{p1:02X}] ({state})"
+        state = "ON (Power Enabled)" if p1 == 0xF1 else ("OFF (Power Disabled)" if p1 == 0xF2 else f"0x{p1:02X}")
+        return f"PowerSwitch [F6{p1:02X}] ({state})"
     if p0 == 0xF0:
         return "InitHandshake [F0]"
     if p0 == 0xFA:
@@ -885,7 +885,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_enabled = False
         self._current_mode = 1
 
-        # 1. Transmit Mode 1 unlock sequence (FDF1, FDF4, FEEF, F6F2)
+        # 1. Transmit Mode 1 unlock sequence (FDF1, FDF4, FEEF, F6F1)
         for mode_pkt in WeekAquaProtocol.build_live_mode_sequence(
             is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
         ):

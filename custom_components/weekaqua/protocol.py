@@ -223,8 +223,8 @@ class WeekAquaProtocol:
                 bytes([0xFD, 0xF4, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
                 # 3. Set full day time window (00:00 - 23:59) so timer doesn't shut down LEDs
                 bytes([0xFE, 0xEF, 0x00, 0x00, 0x23, 0x59, 0x00, 0x00]),
-                # 4. Disable hardware timer switch (Instant live manual output)
-                bytes([0xF6, 0xF2, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
+                # 4. Enable hardware power switch (F6F1: Switch ON / Light output enabled)
+                bytes([0xF6, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
             ])
         else:
             packets.append(
