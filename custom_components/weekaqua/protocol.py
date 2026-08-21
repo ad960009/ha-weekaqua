@@ -210,27 +210,13 @@ class WeekAquaProtocol:
     @classmethod
     def build_live_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:
         """Return the sequence of mode transition packets required before sending live manual spectrum.
-        This forces the WeekAqua MCU to switch out of hardware schedule/ramp mode (Mode 2)
-        and enter continuous manual live spectrum mode (Mode 1).
+        Matches official APK SettingOneActivity.java:
+        FDF4 -> FDF1 (Activate Mode 1 Manual Live Spectrum without timer interference).
         """
-        packets = [
-            # 1. Switch to Mode 1 (Spectrum / Sunrise-Sunset Mode)
-            bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
-        ]
+        packets = []
         if is_4ch_rgb_uv or model_code == "5746":
-            packets.extend([
-                # 2. Activate Spectrum Sub-mode
-                bytes([0xFD, 0xF4, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
-                # 3. Set full day time window (00:00 - 23:59) so timer doesn't shut down LEDs
-                bytes([0xFE, 0xEF, 0x00, 0x00, 0x23, 0x59, 0x00, 0x00]),
-                # 4. Enable hardware power switch (F6F1: Switch ON / Light output enabled)
-                bytes([0xF6, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
-            ])
-        else:
-            packets.append(
-                # Set full day time window for legacy (00:00 - 24:00)
-                bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00])
-            )
+            packets.append(bytes([0xFD, 0xF4, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
+        packets.append(bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
         return packets
 
     @classmethod
