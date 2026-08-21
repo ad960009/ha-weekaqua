@@ -915,17 +915,30 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         violet: float = 0.0,
         ramp_idx: int = 2
     ) -> None:
-        """Send hardware schedule timer (Mode 2) to WeekAqua MCU.
-        Uses the proven Mode 2 Schedule engine (FEF1~FEF8 + FBF1~FBF8 + FDF3 + FDF2)
-        which is 100% reliable across all WeekAqua models.
+        """Send dedicated Sunrise/Sunset Ramp Timer to WeekAqua MCU (Mode 1 FEF9 + FDF1 + FBEF).
+        Does NOT touch or overwrite Mode 2 schedule memory slots (FEF1~FEF8).
         """
         self._manual_disconnected = False
         self.schedule_enabled = False
-        self._current_mode = 2
+        self._current_mode = 1
 
         start_h, start_m, _ = parse_time_str(start_time_str)
         end_h, end_m, _ = parse_time_str(end_time_str)
 
+        # 0. Prepend RTC clock sync packet
+        await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(datetime.now()))
+
+        # 1. Sunrise & Sunset Timer Packet (FEF9 Start End 01 RampIdx)
+        timer_pkt = WeekAquaProtocol.build_sunrise_sunset_packet(
+            start_h, start_m, end_h, end_m, ramp_idx=ramp_idx, enabled=True
+        )
+        await self.enqueue_packet(timer_pkt)
+
+        # 2. Switch MCU to Mode 1
+        mode_pkt = WeekAquaProtocol.build_mode_packet(1)
+        await self.enqueue_packet(mode_pkt)
+
+        # 3. Target Daytime Spectrum Packet (FBEF / FBF9)
         norm = WeekAquaProtocol.normalize_spectrum_to_max_power(r, g, b, w, uv, violet, self.model_code)
         self.current_r = norm.r
         self.current_g = norm.g
@@ -933,36 +946,16 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_w = norm.w
         self.current_uv = norm.uv
         self.current_v = norm.violet
-
-        # 0. RTC Clock Sync
-        await self.enqueue_packet(WeekAquaProtocol.build_rtc_sync_packet(datetime.now()))
-
-        # 1. Slot 1: Daytime Active Window
-        t_pkt1 = WeekAquaProtocol.build_ramp_time_packet(1, start_h, start_m, end_h, end_m, enabled=True)
-        s_pkt1 = WeekAquaProtocol.build_ramp_spectrum_packet(
-            1, norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet, self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+        spec_pkt = WeekAquaProtocol.build_live_spectrum_packet(
+            norm.r, norm.g, norm.b, norm.w, norm.uv, norm.violet,
+            self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
         )
-        await self.enqueue_packet(t_pkt1)
-        await self.enqueue_packet(s_pkt1)
-
-        # 2. Clear remaining slots (Slots 2~8) so no lingering slots interfere
-        for slot_id in range(2, 9):
-            t_clear = WeekAquaProtocol.build_ramp_time_packet(slot_id, 0, 0, 0, 0, enabled=False)
-            s_clear = WeekAquaProtocol.build_ramp_spectrum_packet(
-                slot_id, 0, 0, 0, 0, 0, 0, self.model_code, is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-            )
-            await self.enqueue_packet(t_clear)
-            await self.enqueue_packet(s_clear)
-
-        # 3. Activate Mode 2 (FDF3 -> FDF2)
-        for mode_pkt in WeekAquaProtocol.build_schedule_mode_sequence(
-            is_4ch_rgb_uv=self._is_4ch_rgb_uv(), model_code=self.model_code
-        ):
-            await self.enqueue_packet(mode_pkt)
+        self._last_sent_spectrum = spec_pkt
+        await self.enqueue_packet(spec_pkt, is_live_spectrum=True)
 
         ramp_labels = ["0h (Instant)", "0.5h (30m)", "1.0h (60m)", "1.5h (90m)", "2.0h (120m)", "2.5h (150m)"]
         ramp_lbl = ramp_labels[ramp_idx] if 0 <= ramp_idx < len(ramp_labels) else f"{ramp_idx}"
-        self._add_log("SET_TIMER", f"Set Hardware Timer ({start_h:02d}:{start_m:02d}~{end_h:02d}:{end_m:02d}, Ramp: {ramp_lbl}) in Mode 2", level="info")
+        self._add_log("SET_TIMER", f"Set Sunrise/Sunset ({start_h:02d}:{start_m:02d}~{end_h:02d}:{end_m:02d}, Ramp: {ramp_lbl})", level="info")
         self.async_set_updated_data(self._build_data())
 
     async def async_set_hardware_timer(

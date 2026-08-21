@@ -210,14 +210,16 @@ class WeekAquaProtocol:
     @classmethod
     def build_live_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:
         """Return the sequence of mode transition packets required before sending live manual spectrum.
-        Matches official APK SettingOneActivity.java:
-        FDF4 -> FDF1 (Activate Mode 1 Manual Live Spectrum without timer interference).
+        Sets 24-hour full day timer window (FEF9 00:00~24:00) so Mode 1 stays active 24/7,
+        and switches MCU to Mode 1 (FDF1).
+        Preserves Mode 2 hardware schedule memory (FEF1~FEF8) completely untouched.
         """
-        packets = []
-        if is_4ch_rgb_uv or model_code == "5746":
-            packets.append(bytes([0xFD, 0xF4, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
-        packets.append(bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
-        return packets
+        return [
+            # 1. Open 24h timer window (00:00 ~ 24:00, Enabled, Ramp 0h)
+            bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]),
+            # 2. Switch MCU to Mode 1 (Live Spectrum Output)
+            bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]),
+        ]
 
     @classmethod
     def build_schedule_mode_sequence(cls, is_4ch_rgb_uv: bool = False, model_code: str = "") -> list[bytes]:

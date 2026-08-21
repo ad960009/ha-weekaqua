@@ -105,7 +105,7 @@ class TestWeekAquaProtocol(unittest.TestCase):
     def test_live_mode_sequence_4ch(self):
         seq = WeekAquaProtocol.build_live_mode_sequence(is_4ch_rgb_uv=True)
         self.assertEqual(len(seq), 2)
-        self.assertEqual(seq[0].hex().upper(), "FDF4555555555555")
+        self.assertEqual(seq[0].hex().upper(), "FEF9000024000100")
         self.assertEqual(seq[1].hex().upper(), "FDF1555555555555")
 
     def test_schedule_mode_sequence_4ch(self):
