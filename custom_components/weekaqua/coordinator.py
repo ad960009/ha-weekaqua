@@ -274,21 +274,45 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _is_4ch_rgb_uv(self) -> bool:
         """Detect if device is a 4-channel RGB/UV light (M800 Pro, M600, S-Series, T90, etc.)."""
+        # 1. Use permanently cached result from config entry if available
+        if self._entry and "is_4ch_rgb_uv" in self._entry.data:
+            return bool(self._entry.data["is_4ch_rgb_uv"])
+
         if self.model_code == "5746":
             return True
         if self.model_code in ("5748", "5749", "5750", "5751", "5752"):
             return False
+
+        # 2. Try to evaluate from names
         names = [
             (self.ble_name or "").upper(),
             (self.device_name or "").upper(),
             (self.display_name or "").upper(),
         ]
+        
+        is_4ch = False
+        found_match = False
         for name in names:
             if any(w in name for w in ("6CH", "10CH", "MARINE", "CORAL", "A-SERIES", "A430")):
-                return False
+                is_4ch = False
+                found_match = True
+                break
             if any(w in name for w in ("UV", "UVA", "RGB/UV", "RGB-UV", "RGB_UV", "M800", "M600", "M450", "M400", "M900", "M1200", "M-PRO", "M PRO", "MPRO", "S400", "S600", "S800", "S1200", "T90", "T60", "Z400", "Z600", "P600", "P800", "P900", "P1200")) or name.startswith("M"):
-                return True
-        return False
+                is_4ch = True
+                found_match = True
+                break
+        
+        # 3. If we found a definitive match (usually because ble_name became available), persist it
+        if found_match and self._entry:
+            try:
+                new_data = dict(self._entry.data)
+                new_data["is_4ch_rgb_uv"] = is_4ch
+                self.hass.config_entries.async_update_entry(self._entry, data=new_data)
+                _LOGGER.info("Cached is_4ch_rgb_uv=%s for %s based on name match", is_4ch, self.mac)
+            except Exception as e:
+                _LOGGER.debug("Failed to cache is_4ch_rgb_uv: %s", e)
+
+        return is_4ch
 
     async def _ensure_connected(self, force: bool = False) -> bool:
         """
@@ -342,7 +366,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     return False
 
                 # 광고 데이터로부터 장치명 및 모델 코드 자동 보정
-                if ble_device.name and (not self.device_name or self.device_name.startswith("WeekAqua (") or self.device_name == "WeekAqua Light"):
+                if ble_device.name and (not self.device_name or self.device_name.startswith("WeekAqua (") or self.device_name == "WeekAqua Light" or self.device_name.replace(":", "").upper() == self.mac.replace(":", "").upper()):
                     self.device_name = ble_device.name
                     _LOGGER.info("Auto-discovered BLE device name: %s for %s", self.device_name, self.mac)
 
@@ -420,6 +444,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if device:
                         dev_reg.async_update_device(
                             device_id=device.id,
+                            name=self.device_name,
                             model=f"WeekAqua ({self.model_code or 'BLE'})",
                             merge_connections={(dr.CONNECTION_BLUETOOTH, self.mac)},
                         )

@@ -82,6 +82,7 @@ class WeekAquaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
 
+        self.context["title_placeholders"] = {"name": discovery_info.name}
         self._discovery_info = discovery_info
         return await self.async_step_bluetooth_confirm()
 
