@@ -190,6 +190,10 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             "has_uv": self._has_uv(),
             "has_6ch": self._has_6ch(),
             "max_slots": self._max_slots(),
+            "keep_moonlight": self.coordinator.keep_moonlight,
+            "moonlight_brightness": self.coordinator.moonlight_brightness,
+            "current_mode": self.coordinator._current_mode,
+            "mode_name": "Schedule (Mode 2)" if self.coordinator._current_mode == 2 else "Live (Mode 1)",
             "ble_logs": list(self.coordinator.ble_logs),
             "queue_size": self.coordinator._write_queue.qsize(),
         }

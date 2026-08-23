@@ -875,10 +875,10 @@ class WeekAquaCard extends HTMLElement {
             </div>
             <div class="moonlight-toggle-wrap">
               <label class="moonlight-label" for="sched-keep-moonlight">
-                <input type="checkbox" id="sched-keep-moonlight" checked>
-                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 <span id="moonlight-pct-txt">4</span>% 유지)</span>
+                <input type="checkbox" id="sched-keep-moonlight" ${this._keepMoonlight ? 'checked' : ''}>
+                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 <span id="moonlight-pct-txt">${this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4}</span>% 유지)</span>
               </label>
-              <span class="moonlight-badge" id="moonlight-status-badge">Blue 4%</span>
+              <span class="moonlight-badge" id="moonlight-status-badge">${this._keepMoonlight ? `Blue ${this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4}%` : 'Off (0%)'}</span>
             </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
               ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
@@ -954,6 +954,12 @@ class WeekAquaCard extends HTMLElement {
         const data = JSON.parse(raw);
         if (data.points && Array.isArray(data.points) && data.points.length > 0) {
           this._schedulePoints = data.points;
+        }
+        if (data.moonlight_brightness !== undefined) {
+          this._moonlightBrightness = parseFloat(data.moonlight_brightness) || this._moonlightBrightness;
+        }
+        if (data.keep_moonlight !== undefined) {
+          this._keepMoonlight = Boolean(data.keep_moonlight);
         }
         if (data) {
           this._scheduleMeta = data;
@@ -2046,14 +2052,40 @@ class WeekAquaCard extends HTMLElement {
           this._updateScheduleToggleUI(this._scheduleEnabled);
         }
 
-        // Synchronize moonlight retention & brightness from entity attributes
-        if (attr.moonlight_brightness !== undefined) {
-          this._moonlightBrightness = parseFloat(attr.moonlight_brightness) || 4;
+        // Synchronize moonlight retention & brightness from entity attributes (with fallback)
+        let mlBrightness = attr.moonlight_brightness;
+        let mlKeep = attr.keep_moonlight;
+
+        if (mlBrightness === undefined && this._hass && this._hass.states) {
+          const entityKey = (this._config.entity || '').replace(/^light\./, '');
+          for (const [eId, eState] of Object.entries(this._hass.states)) {
+            if (eId.startsWith('number.') && eId.includes('moonlight') && (eId.includes(entityKey) || (attr.mac && eId.includes(attr.mac.replace(/:/g, '').toLowerCase())))) {
+              if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
+                mlBrightness = parseFloat(eState.state);
+                break;
+              }
+            }
+          }
         }
-        if (attr.keep_moonlight !== undefined) {
-          this._keepMoonlight = Boolean(attr.keep_moonlight);
-          this._updateMoonlightUI();
+        if (mlKeep === undefined && this._hass && this._hass.states) {
+          const entityKey = (this._config.entity || '').replace(/^light\./, '');
+          for (const [eId, eState] of Object.entries(this._hass.states)) {
+            if (eId.startsWith('switch.') && eId.includes('moonlight') && (eId.includes(entityKey) || (attr.mac && eId.includes(attr.mac.replace(/:/g, '').toLowerCase())))) {
+              if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
+                mlKeep = (eState.state === 'on');
+                break;
+              }
+            }
+          }
         }
+
+        if (mlBrightness !== undefined) {
+          this._moonlightBrightness = parseFloat(mlBrightness) || this._moonlightBrightness;
+        }
+        if (mlKeep !== undefined) {
+          this._keepMoonlight = Boolean(mlKeep);
+        }
+        this._updateMoonlightUI();
 
         // Synchronize and restore schedule points and metadata from HA entity attributes
         if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {
