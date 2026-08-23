@@ -58,6 +58,11 @@ class WeekAquaCard extends HTMLElement {
       { time: '01:36', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
       { time: '02:00', r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
     ];
+    this._isUserInteractingSliders = false;
+    this._lastUserSliderInteractionTime = 0;
+    this._sliderInteractionTimer = null;
+    this._lastLayoutKey = null;
+    this._lastLogHash = null;
   }
 
   setConfig(config) {
@@ -961,31 +966,32 @@ class WeekAquaCard extends HTMLElement {
     if (!meta) return;
     const root = this.shadowRoot;
     if (!root) return;
+    const activeEl = root.activeElement;
 
     if (meta.start_time) {
       const startEl = root.getElementById('sched-start-time');
-      if (startEl) startEl.value = meta.start_time;
+      if (startEl && activeEl !== startEl) startEl.value = meta.start_time;
     }
     if (meta.end_time) {
       const endEl = root.getElementById('sched-end-time');
-      if (endEl) endEl.value = meta.end_time;
+      if (endEl && activeEl !== endEl) endEl.value = meta.end_time;
     }
     if (meta.slots) {
       const slotsEl = root.getElementById('sched-slots-input');
-      if (slotsEl) {
+      if (slotsEl && activeEl !== slotsEl) {
         slotsEl.value = String(meta.slots);
         this._userChangedSlots = true;
       }
     }
     if (meta.preset) {
       const presetEl = root.getElementById('sched-preset-select');
-      if (presetEl) presetEl.value = meta.preset;
+      if (presetEl && activeEl !== presetEl) presetEl.value = meta.preset;
     }
     if (meta.keep_moonlight !== undefined) {
       const chk = root.getElementById('sched-keep-moonlight');
       const badge = root.getElementById('moonlight-status-badge');
       if (chk) {
-        chk.checked = Boolean(meta.keep_moonlight);
+        if (activeEl !== chk) chk.checked = Boolean(meta.keep_moonlight);
         this._keepMoonlight = chk.checked;
         if (badge) {
           badge.textContent = this._keepMoonlight ? 'Blue 4%' : 'Off (0%)';
@@ -1135,16 +1141,46 @@ class WeekAquaCard extends HTMLElement {
       this._setConnectionStatus(false);
     });
 
-    // Sliders
+    // Sliders with user interaction tracking
     ['r', 'g', 'b', 'w', 'uv', 'v'].forEach((ch) => {
       const sl = root.getElementById(`sl-${ch}`);
       const txt = root.getElementById(`txt-${ch}`);
       if (sl && txt) {
+        const onSliderStart = () => {
+          this._isUserInteractingSliders = true;
+          this._lastUserSliderInteractionTime = Date.now();
+          if (this._sliderInteractionTimer) {
+            clearTimeout(this._sliderInteractionTimer);
+            this._sliderInteractionTimer = null;
+          }
+        };
+
+        const onSliderEnd = () => {
+          this._lastUserSliderInteractionTime = Date.now();
+          if (this._sliderInteractionTimer) clearTimeout(this._sliderInteractionTimer);
+          this._sliderInteractionTimer = setTimeout(() => {
+            this._isUserInteractingSliders = false;
+            this._sliderInteractionTimer = null;
+          }, 1500);
+        };
+
+        sl.addEventListener('pointerdown', onSliderStart);
+        sl.addEventListener('mousedown', onSliderStart);
+        sl.addEventListener('touchstart', onSliderStart, { passive: true });
+        sl.addEventListener('focus', onSliderStart);
+
+        sl.addEventListener('pointerup', onSliderEnd);
+        sl.addEventListener('mouseup', onSliderEnd);
+        sl.addEventListener('touchend', onSliderEnd);
+        sl.addEventListener('blur', onSliderEnd);
+
         sl.addEventListener('input', () => {
+          onSliderStart();
           txt.textContent = `${sl.value}%`;
           this._updateGauge();
         });
         sl.addEventListener('change', () => {
+          onSliderEnd();
           this._sendLiveSpectrum();
           this._setConnectionStatus(true);
         });
@@ -1428,7 +1464,7 @@ class WeekAquaCard extends HTMLElement {
   _applyPreset(presetName) {
     this._updateModeUI(1);
     const spec = this._getPresetSpectrum(presetName);
-    this._setSliderValues(spec.r, spec.g, spec.b, spec.w, spec.uv, spec.v);
+    this._setSliderValues(spec.r, spec.g, spec.b, spec.w, spec.uv, spec.v, true);
     if (this._hass) {
       this._hass.callService('weekaqua', 'apply_preset', {
         device_id: this._config.device_id || '',
@@ -1438,9 +1474,19 @@ class WeekAquaCard extends HTMLElement {
     }
   }
 
-  _setSliderValues(r, g, b, w, uv = 0, v = 0) {
+  _setSliderValues(r, g, b, w, uv = 0, v = 0, force = false) {
     const root = this.shadowRoot;
     if (!root) return;
+
+    if (!force) {
+      const isInteracting = this._isUserInteractingSliders || (Date.now() - (this._lastUserSliderInteractionTime || 0) < 1500);
+      const activeEl = root.activeElement;
+      const isActiveSlider = activeEl && activeEl.id && activeEl.id.startsWith('sl-');
+      if (isInteracting || isActiveSlider) {
+        return; // Preserve user's active drag/edit on sliders
+      }
+    }
+
     const channels = { r, g, b, w, uv, v };
     for (const [ch, val] of Object.entries(channels)) {
       const sl = root.getElementById(`sl-${ch}`);
@@ -1586,6 +1632,19 @@ class WeekAquaCard extends HTMLElement {
     const root = this.shadowRoot;
     const tbody = root.getElementById('sched-tbody');
     if (!tbody) return;
+
+    // Check if user is actively typing in a table input to restore focus
+    const activeEl = root.activeElement;
+    let focusedInfo = null;
+    if (activeEl && tbody.contains(activeEl)) {
+      focusedInfo = {
+        rowIdx: activeEl.dataset.row ? parseInt(activeEl.dataset.row, 10) : null,
+        k: activeEl.dataset.k,
+        selectionStart: activeEl.selectionStart,
+        selectionEnd: activeEl.selectionEnd,
+      };
+    }
+
     tbody.innerHTML = '';
 
     const attr = this._modelInfo || {};
@@ -1623,22 +1682,24 @@ class WeekAquaCard extends HTMLElement {
     this._schedulePoints.forEach((pt, idx) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><input type="text" value="${pt.time}" data-k="time" style="width:48px;"></td>
-        <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r"></td>
-        <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g"></td>
-        <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b"></td>
-        <td style="${hasUv ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv"></td>
-        <td style="${hasWhite ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.w || 0}" data-k="w"></td>
-        <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v"></td>
+        <td><input type="text" value="${pt.time}" data-k="time" data-row="${idx}" style="width:48px;"></td>
+        <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r" data-row="${idx}"></td>
+        <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g" data-row="${idx}"></td>
+        <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b" data-row="${idx}"></td>
+        <td style="${hasUv ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv" data-row="${idx}"></td>
+        <td style="${hasWhite ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.w || 0}" data-k="w" data-row="${idx}"></td>
+        <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v" data-row="${idx}"></td>
         <td><button class="btn-sm" data-del="${idx}">✕</button></td>
       `;
 
       tr.querySelectorAll('input').forEach((input) => {
-        input.addEventListener('change', (e) => {
+        const updateVal = (e) => {
           const k = e.target.dataset.k;
-          pt[k] = k === 'time' ? e.target.value : parseFloat(e.target.value) || 0;
+          pt[k] = k === 'time' ? e.target.value : (parseFloat(e.target.value) || 0);
           this._renderCurve();
-        });
+        };
+        input.addEventListener('input', updateVal);
+        input.addEventListener('change', updateVal);
       });
 
       tr.querySelector('button[data-del]').addEventListener('click', () => {
@@ -1651,6 +1712,18 @@ class WeekAquaCard extends HTMLElement {
 
       tbody.appendChild(tr);
     });
+
+    if (focusedInfo && focusedInfo.rowIdx !== null) {
+      const targetInput = tbody.querySelector(`input[data-row="${focusedInfo.rowIdx}"][data-k="${focusedInfo.k}"]`);
+      if (targetInput) {
+        targetInput.focus();
+        if (focusedInfo.selectionStart !== null && focusedInfo.selectionEnd !== null && targetInput.setSelectionRange) {
+          try {
+            targetInput.setSelectionRange(focusedInfo.selectionStart, focusedInfo.selectionEnd);
+          } catch (e) {}
+        }
+      }
+    }
   }
 
   _getSchedulePowerAtMinute(minute) {
@@ -1781,16 +1854,14 @@ class WeekAquaCard extends HTMLElement {
 
   _setConnectionStatus(isConnected) {
     const root = this.shadowRoot;
+    if (!root) return;
     const dot = root.getElementById('conn-dot');
     const txt = root.getElementById('conn-status-txt');
     if (dot && txt) {
-      if (isConnected) {
-        dot.className = 'conn-dot online';
-        txt.textContent = 'Connected (Auto-off in 60s)';
-      } else {
-        dot.className = 'conn-dot';
-        txt.textContent = 'Disconnected (Standby)';
-      }
+      const targetClass = isConnected ? 'conn-dot online' : 'conn-dot';
+      const targetText = isConnected ? 'Connected (Auto-off in 60s)' : 'Disconnected (Standby)';
+      if (dot.className !== targetClass) dot.className = targetClass;
+      if (txt.textContent !== targetText) txt.textContent = targetText;
     }
   }
 
@@ -1826,6 +1897,13 @@ class WeekAquaCard extends HTMLElement {
     const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
     const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
 
+    // Check layout signature to avoid unnecessary DOM mutations
+    const layoutKey = `${bleName}_${attr.model_code || ''}_${attr.mac || ''}_${this._config.title || ''}_${is4ChRgbUv}_${hasWhite}_${hasUv}_${has6ch}`;
+    if (this._lastLayoutKey === layoutKey) {
+      return;
+    }
+    this._lastLayoutKey = layoutKey;
+
     // Dynamic Title & Hardware Tag
     const titleEl = root.getElementById('card-title-text');
     const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
@@ -1846,7 +1924,7 @@ class WeekAquaCard extends HTMLElement {
     if (cleanFriendly && !baseTitle.toUpperCase().includes(cleanFriendly.toUpperCase())) {
       titleStr = `${baseTitle} (${cleanFriendly})`;
     }
-    if (titleEl) {
+    if (titleEl && titleEl.textContent !== titleStr) {
       titleEl.textContent = titleStr;
     }
 
@@ -1867,7 +1945,9 @@ class WeekAquaCard extends HTMLElement {
       if (mac) {
         tagText += ` • 📶 ${mac}`;
       }
-      devTag.textContent = tagText;
+      if (devTag.textContent !== tagText) {
+        devTag.textContent = tagText;
+      }
       devTag.style.display = 'block';
     }
 
@@ -1896,13 +1976,36 @@ class WeekAquaCard extends HTMLElement {
       container.insertBefore(rowUv, rowW);
     }
 
+    // Dynamically update Table Header labels & column visibility in Schedule tab
+    const thUv = root.getElementById('th-uv');
+    const thW = root.getElementById('th-w');
+    const thV = root.getElementById('th-v');
+    if (thUv) thUv.style.display = hasUv ? '' : 'none';
+    if (thW) thW.style.display = hasWhite ? '' : 'none';
+    if (thV) thV.style.display = has6ch ? '' : 'none';
+
+    // Show/hide any existing table cells for UV/W/V
+    root.querySelectorAll('#sched-tbody tr').forEach((tr) => {
+      const inputs = tr.querySelectorAll('input');
+      inputs.forEach((input) => {
+        const k = input.dataset.k;
+        if (k === 'uv' && input.parentElement) {
+          input.parentElement.style.display = hasUv ? '' : 'none';
+        }
+        if (k === 'w' && input.parentElement) {
+          input.parentElement.style.display = hasWhite ? '' : 'none';
+        }
+        if (k === 'v' && input.parentElement) {
+          input.parentElement.style.display = has6ch ? '' : 'none';
+        }
+      });
+    });
+
     const slotsInput = root.getElementById('sched-slots-input');
     if (slotsInput && !this._userChangedSlots && this._schedulePoints) {
       slotsInput.value = String(this._schedulePoints.length);
     }
 
-    // Re-render schedule table & gauge with verified model specs
-    this._renderScheduleTable();
     this._updateGauge();
   }
 
@@ -1998,6 +2101,13 @@ class WeekAquaCard extends HTMLElement {
       }
       return;
     }
+
+    const latestLog = logs[logs.length - 1];
+    const logHash = `${logs.length}_${latestLog?.id || ''}_${latestLog?.ts || ''}`;
+    if (this._lastLogHash === logHash) {
+      return;
+    }
+    this._lastLogHash = logHash;
 
     let html = '';
     logs.forEach((item) => {
