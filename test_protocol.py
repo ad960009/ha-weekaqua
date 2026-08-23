@@ -105,14 +105,23 @@ class TestWeekAquaProtocol(unittest.TestCase):
     def test_live_mode_sequence_4ch(self):
         seq = WeekAquaProtocol.build_live_mode_sequence(is_4ch_rgb_uv=True)
         self.assertEqual(len(seq), 2)
-        self.assertEqual(seq[0].hex().upper(), "FEF9000024000100")
-        self.assertEqual(seq[1].hex().upper(), "FDF1555555555555")
+        self.assertEqual(seq[0].hex().upper(), "FDF1555555555555")
+        self.assertEqual(seq[1].hex().upper(), "FEF9000024000100")
 
     def test_schedule_mode_sequence_4ch(self):
-        seq = WeekAquaProtocol.build_schedule_mode_sequence(is_4ch_rgb_uv=True)
+        seq = WeekAquaProtocol.build_schedule_mode_sequence(is_4ch_rgb_uv=True, model_code="5746")
         self.assertEqual(len(seq), 2)
         self.assertEqual(seq[0].hex().upper(), "FDF3555555555555")
         self.assertEqual(seq[1].hex().upper(), "FDF2555555555555")
+
+    def test_4ch_rgb_uv_zero_uv_turned_off(self):
+        # When UV is 0%, channel 4 must be 0x00, NOT fallback to white
+        packet_0 = WeekAquaProtocol.build_live_spectrum_packet(50, 50, 50, 50, uv_pct=0, is_4ch_rgb_uv=True)
+        self.assertEqual(packet_0[5], 0x00)
+
+        # When UV is 1%, channel 4 must be 0x02 (~1%)
+        packet_1 = WeekAquaProtocol.build_live_spectrum_packet(50, 50, 50, 50, uv_pct=1, is_4ch_rgb_uv=True)
+        self.assertEqual(packet_1[5], 0x02)
 
 
 if __name__ == "__main__":

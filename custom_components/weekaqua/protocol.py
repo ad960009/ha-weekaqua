@@ -169,13 +169,11 @@ class WeekAquaProtocol:
 
         # 4-Channel RGB/UV (Model 5746 - StringOneTools)
         if model_code == "5746":
-            ch4 = uv if uv > 0 else w
-            return bytes([0xFB, 0xEF, r, g, b, ch4, 0x55, 0x55])
+            return bytes([0xFB, 0xEF, r, g, b, uv, 0x55, 0x55])
 
         # 4-Channel RGB/UV Legacy (Model 5745)
         if is_4ch_rgb_uv:
-            ch4 = uv if uv > 0 else w
-            return bytes([0xFB, 0xF9, r, g, b, ch4, 0x55, 0x55])
+            return bytes([0xFB, 0xF9, r, g, b, uv, 0x55, 0x55])
 
         if v > 0 or model_code in ("5749", "5750", "5751", "5752"):
             return bytes([0xFB, 0xF9, r, g, b, w, uv, v, 0x55, 0x55])
@@ -302,8 +300,7 @@ class WeekAquaProtocol:
         v = cls.percent_to_byte(norm.violet)
 
         if is_4ch_rgb_uv or model_code == "5746":
-            ch4 = uv if uv > 0 else w
-            return bytes([0xFB, second_header, r, g, b, ch4, 0x55, 0x55])
+            return bytes([0xFB, second_header, r, g, b, uv, 0x55, 0x55])
 
         if v > 0 or model_code in ("5749", "5750", "5751", "5752"):
             return bytes([0xFB, second_header, r, g, b, w, uv, v, 0x55, 0x55])
