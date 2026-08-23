@@ -71,26 +71,38 @@ class WeekAquaCard extends HTMLElement {
       throw new Error('Invalid configuration');
     }
     this._config = Object.assign({}, config);
-    this._restoreFromLocalStorage();
-    this._render();
-    if (this._hass && this._config && this._config.entity && this.shadowRoot) {
-      this._updateState();
+    try {
+      this._restoreFromLocalStorage();
+      this._render();
+      if (this._hass && this._config && this._config.entity && this.shadowRoot) {
+        this._updateState();
+      }
+    } catch (err) {
+      console.error("WeekAquaCard setConfig error:", err);
     }
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (this._config && this._config.entity && this.shadowRoot) {
-      this._updateState();
+    try {
+      if (this._config && this._config.entity && this.shadowRoot) {
+        this._updateState();
+      }
+    } catch (err) {
+      console.error("WeekAquaCard set hass error:", err);
     }
   }
 
   connectedCallback() {
-    if (this._config && (!this.shadowRoot || !this.shadowRoot.hasChildNodes())) {
-      this._render();
-    }
-    if (this._hass && this._config && this._config.entity && this.shadowRoot) {
-      this._updateState();
+    try {
+      if (this._config && (!this.shadowRoot || !this.shadowRoot.hasChildNodes())) {
+        this._render();
+      }
+      if (this._hass && this._config && this._config.entity && this.shadowRoot) {
+        this._updateState();
+      }
+    } catch (err) {
+      console.error("WeekAquaCard connectedCallback error:", err);
     }
   }
 
@@ -138,7 +150,8 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _render() {
-    this.shadowRoot.innerHTML = `
+    try {
+      this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
@@ -692,7 +705,7 @@ class WeekAquaCard extends HTMLElement {
       <div class="card">
         <div class="header">
           <div class="title">
-            <span>🐠</span> <span id="card-title-text">${this._config.title || 'WeekAqua Light'}</span>
+            <span>🐠</span> <span id="card-title-text">${(this._config && this._config.title) ? this._config.title : 'WeekAqua Light'}</span>
           </div>
           <div class="tabs">
             <button class="tab-btn active" id="tab-live">Live</button>
@@ -888,9 +901,9 @@ class WeekAquaCard extends HTMLElement {
             <div class="moonlight-toggle-wrap">
               <label class="moonlight-label" for="sched-keep-moonlight">
                 <input type="checkbox" id="sched-keep-moonlight" ${this._keepMoonlight ? 'checked' : ''}>
-                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 <span id="moonlight-pct-txt">${this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4}</span>% 유지)</span>
+                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 <span id="moonlight-pct-txt">${(Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4}</span>% 유지)</span>
               </label>
-              <span class="moonlight-badge" id="moonlight-status-badge">${this._keepMoonlight ? `Blue ${this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4}%` : 'Off (0%)'}</span>
+              <span class="moonlight-badge" id="moonlight-status-badge">${this._keepMoonlight ? `Blue ${(Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4}%` : 'Off (0%)'}</span>
             </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
               ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
@@ -956,6 +969,9 @@ class WeekAquaCard extends HTMLElement {
     this._restoreFromLocalStorage();
     this._renderScheduleTable();
     this._renderCurve();
+    } catch (err) {
+      console.error("WeekAquaCard _render error:", err);
+    }
   }
 
   _restoreFromLocalStorage() {
@@ -985,7 +1001,7 @@ class WeekAquaCard extends HTMLElement {
     if (!meta) return;
     const root = this.shadowRoot;
     if (!root) return;
-    const activeEl = root.activeElement;
+    const activeEl = (root && 'activeElement' in root) ? root.activeElement : null;
 
     if (meta.start_time) {
       const startEl = root.getElementById('sched-start-time');
@@ -1007,12 +1023,15 @@ class WeekAquaCard extends HTMLElement {
       if (presetEl && activeEl !== presetEl) presetEl.value = meta.preset;
     }
     if (meta.moonlight_brightness !== undefined) {
-      this._moonlightBrightness = parseFloat(meta.moonlight_brightness) || 4;
+      const parsed = parseFloat(meta.moonlight_brightness);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        this._moonlightBrightness = parsed;
+      }
     }
     if (meta.keep_moonlight !== undefined) {
       this._keepMoonlight = Boolean(meta.keep_moonlight);
-      this._updateMoonlightUI();
     }
+    this._updateMoonlightUI();
   }
 
   _updateMoonlightUI() {
@@ -1021,9 +1040,10 @@ class WeekAquaCard extends HTMLElement {
     const chk = root.getElementById('sched-keep-moonlight');
     const badge = root.getElementById('moonlight-status-badge');
     const pctTxt = root.getElementById('moonlight-pct-txt');
-    const brightness = this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4;
-    if (chk && root.activeElement !== chk) {
-      chk.checked = this._keepMoonlight;
+    const brightness = (Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4;
+    const activeEl = (root && 'activeElement' in root) ? root.activeElement : null;
+    if (chk && activeEl !== chk) {
+      chk.checked = Boolean(this._keepMoonlight);
     }
     if (pctTxt) {
       pctTxt.textContent = `${brightness}`;
@@ -1693,100 +1713,110 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _renderScheduleTable() {
-    const root = this.shadowRoot;
-    const tbody = root.getElementById('sched-tbody');
-    if (!tbody) return;
+    try {
+      const root = this.shadowRoot;
+      if (!root) return;
+      const tbody = root.getElementById('sched-tbody');
+      if (!tbody) return;
 
-    // Check if user is actively typing in a table input to restore focus
-    const activeEl = root.activeElement;
-    let focusedInfo = null;
-    if (activeEl && tbody.contains(activeEl)) {
-      focusedInfo = {
-        rowIdx: activeEl.dataset.row ? parseInt(activeEl.dataset.row, 10) : null,
-        k: activeEl.dataset.k,
-        selectionStart: activeEl.selectionStart,
-        selectionEnd: activeEl.selectionEnd,
-      };
-    }
-
-    tbody.innerHTML = '';
-
-    const attr = this._modelInfo || {};
-    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
-      ? Boolean(this._config.is_4ch_rgb_uv)
-      : (attr.is_4ch_rgb_uv || (attr.device_name && (
-          attr.device_name.toUpperCase().includes('M800') ||
-          attr.device_name.toUpperCase().includes('M600') ||
-          attr.device_name.toUpperCase().includes('M-PRO') ||
-          attr.device_name.toUpperCase().includes('M PRO') ||
-          attr.device_name.toUpperCase().includes('S-PRO') ||
-          attr.device_name.toUpperCase().includes('S400') ||
-          attr.device_name.toUpperCase().includes('S600') ||
-          attr.device_name.toUpperCase().includes('S800') ||
-          attr.device_name.toUpperCase().includes('T90') ||
-          attr.device_name.toUpperCase().includes('P600') ||
-          attr.device_name.toUpperCase().includes('P800') ||
-          attr.device_name.toUpperCase().includes('P900') ||
-          attr.device_name.toUpperCase().includes('P1200') ||
-          attr.device_name.toUpperCase().includes('Z400') ||
-          attr.device_name.toUpperCase().includes('Z600')
-        )));
-    const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
-    const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
-    const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
-
-    // Dynamically update Table Header labels & column visibility
-    const thUv = root.getElementById('th-uv');
-    const thW = root.getElementById('th-w');
-    const thV = root.getElementById('th-v');
-    if (thUv) thUv.style.display = hasUv ? '' : 'none';
-    if (thW) thW.style.display = hasWhite ? '' : 'none';
-    if (thV) thV.style.display = has6ch ? '' : 'none';
-
-    this._schedulePoints.forEach((pt, idx) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="text" value="${pt.time}" data-k="time" data-row="${idx}" style="width:48px;"></td>
-        <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r" data-row="${idx}"></td>
-        <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g" data-row="${idx}"></td>
-        <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b" data-row="${idx}"></td>
-        <td style="${hasUv ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv" data-row="${idx}"></td>
-        <td style="${hasWhite ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.w || 0}" data-k="w" data-row="${idx}"></td>
-        <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v" data-row="${idx}"></td>
-        <td><button class="btn-sm" data-del="${idx}">✕</button></td>
-      `;
-
-      tr.querySelectorAll('input').forEach((input) => {
-        const updateVal = (e) => {
-          const k = e.target.dataset.k;
-          pt[k] = k === 'time' ? e.target.value : (parseFloat(e.target.value) || 0);
-          this._renderCurve();
+      // Check if user is actively typing in a table input to restore focus
+      const activeEl = (root && 'activeElement' in root) ? root.activeElement : null;
+      let focusedInfo = null;
+      if (activeEl && tbody.contains(activeEl)) {
+        focusedInfo = {
+          rowIdx: activeEl.dataset.row ? parseInt(activeEl.dataset.row, 10) : null,
+          k: activeEl.dataset.k,
+          selectionStart: activeEl.selectionStart,
+          selectionEnd: activeEl.selectionEnd,
         };
-        input.addEventListener('input', updateVal);
-        input.addEventListener('change', updateVal);
-      });
+      }
 
-      tr.querySelector('button[data-del]').addEventListener('click', () => {
-        this._schedulePoints.splice(idx, 1);
-        const slotsInput = root.getElementById('sched-slots-input');
-        if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
-        this._renderScheduleTable();
-        this._renderCurve();
-      });
+      tbody.innerHTML = '';
 
-      tbody.appendChild(tr);
-    });
+      const attr = this._modelInfo || {};
+      const is4ChRgbUv = (this._config && this._config.is_4ch_rgb_uv !== undefined)
+        ? Boolean(this._config.is_4ch_rgb_uv)
+        : (attr.is_4ch_rgb_uv || (attr.device_name && (
+            attr.device_name.toUpperCase().includes('M800') ||
+            attr.device_name.toUpperCase().includes('M600') ||
+            attr.device_name.toUpperCase().includes('M-PRO') ||
+            attr.device_name.toUpperCase().includes('M PRO') ||
+            attr.device_name.toUpperCase().includes('S-PRO') ||
+            attr.device_name.toUpperCase().includes('S400') ||
+            attr.device_name.toUpperCase().includes('S600') ||
+            attr.device_name.toUpperCase().includes('S800') ||
+            attr.device_name.toUpperCase().includes('T90') ||
+            attr.device_name.toUpperCase().includes('P600') ||
+            attr.device_name.toUpperCase().includes('P800') ||
+            attr.device_name.toUpperCase().includes('P900') ||
+            attr.device_name.toUpperCase().includes('P1200') ||
+            attr.device_name.toUpperCase().includes('Z400') ||
+            attr.device_name.toUpperCase().includes('Z600')
+          )));
+      const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
+      const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
+      const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
 
-    if (focusedInfo && focusedInfo.rowIdx !== null) {
-      const targetInput = tbody.querySelector(`input[data-row="${focusedInfo.rowIdx}"][data-k="${focusedInfo.k}"]`);
-      if (targetInput) {
-        targetInput.focus();
-        if (focusedInfo.selectionStart !== null && focusedInfo.selectionEnd !== null && targetInput.setSelectionRange) {
-          try {
-            targetInput.setSelectionRange(focusedInfo.selectionStart, focusedInfo.selectionEnd);
-          } catch (e) {}
+      // Dynamically update Table Header labels & column visibility
+      const thUv = root.getElementById('th-uv');
+      const thW = root.getElementById('th-w');
+      const thV = root.getElementById('th-v');
+      if (thUv) thUv.style.display = hasUv ? '' : 'none';
+      if (thW) thW.style.display = hasWhite ? '' : 'none';
+      if (thV) thV.style.display = has6ch ? '' : 'none';
+
+      if (Array.isArray(this._schedulePoints)) {
+        this._schedulePoints.forEach((pt, idx) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><input type="text" value="${pt.time}" data-k="time" data-row="${idx}" style="width:48px;"></td>
+            <td><input type="number" min="0" max="100" value="${pt.r}" data-k="r" data-row="${idx}"></td>
+            <td><input type="number" min="0" max="100" value="${pt.g}" data-k="g" data-row="${idx}"></td>
+            <td><input type="number" min="0" max="100" value="${pt.b}" data-k="b" data-row="${idx}"></td>
+            <td style="${hasUv ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.uv || 0}" data-k="uv" data-row="${idx}"></td>
+            <td style="${hasWhite ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.w || 0}" data-k="w" data-row="${idx}"></td>
+            <td style="${has6ch ? '' : 'display:none;'}"><input type="number" min="0" max="100" value="${pt.v || 0}" data-k="v" data-row="${idx}"></td>
+            <td><button class="btn-sm" data-del="${idx}">✕</button></td>
+          `;
+
+          tr.querySelectorAll('input').forEach((input) => {
+            const updateVal = (e) => {
+              const k = e.target.dataset.k;
+              pt[k] = k === 'time' ? e.target.value : (parseFloat(e.target.value) || 0);
+              this._renderCurve();
+            };
+            input.addEventListener('input', updateVal);
+            input.addEventListener('change', updateVal);
+          });
+
+          const delBtn = tr.querySelector('button[data-del]');
+          if (delBtn) {
+            delBtn.addEventListener('click', () => {
+              this._schedulePoints.splice(idx, 1);
+              const slotsInput = root.getElementById('sched-slots-input');
+              if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
+              this._renderScheduleTable();
+              this._renderCurve();
+            });
+          }
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      if (focusedInfo && focusedInfo.rowIdx !== null) {
+        const targetInput = tbody.querySelector(`input[data-row="${focusedInfo.rowIdx}"][data-k="${focusedInfo.k}"]`);
+        if (targetInput) {
+          targetInput.focus();
+          if (focusedInfo.selectionStart !== null && focusedInfo.selectionEnd !== null && targetInput.setSelectionRange) {
+            try {
+              targetInput.setSelectionRange(focusedInfo.selectionStart, focusedInfo.selectionEnd);
+            } catch (e) {}
+          }
         }
       }
+    } catch (err) {
+      console.warn("WeekAquaCard _renderScheduleTable error:", err);
     }
   }
 
@@ -1853,20 +1883,25 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _renderCurve() {
-    const path = this.shadowRoot.getElementById('curve-path');
-    if (!path || !this._schedulePoints || this._schedulePoints.length === 0) return;
+    try {
+      if (!this.shadowRoot) return;
+      const path = this.shadowRoot.getElementById('curve-path');
+      if (!path || !this._schedulePoints || this._schedulePoints.length === 0) return;
 
-    let d = 'M 0 100 ';
-    const numSamples = 240;
-    for (let x = 0; x <= numSamples; x++) {
-      const min = (x / numSamples) * 1440;
-      const power = this._getSchedulePowerAtMinute(min);
-      const y = 100 - power;
-      d += `L ${x} ${y.toFixed(1)} `;
+      let d = 'M 0 100 ';
+      const numSamples = 240;
+      for (let x = 0; x <= numSamples; x++) {
+        const min = (x / numSamples) * 1440;
+        const power = this._getSchedulePowerAtMinute(min);
+        const y = 100 - (Number.isFinite(power) ? power : 0);
+        d += `L ${x} ${y.toFixed(1)} `;
+      }
+
+      d += 'L 240 100 Z';
+      path.setAttribute('d', d);
+    } catch (err) {
+      console.warn("WeekAquaCard _renderCurve error:", err);
     }
-
-    d += 'L 240 100 Z';
-    path.setAttribute('d', d);
   }
 
   _saveScheduleToHA() {
@@ -1931,67 +1966,68 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _applyModelLayout(attr) {
-    if (!attr) return;
-    this._modelInfo = attr;
-    const root = this.shadowRoot;
-    if (!root) return;
+    try {
+      if (!attr) return;
+      this._modelInfo = attr;
+      const root = this.shadowRoot;
+      if (!root) return;
 
-    const bleName = (attr.ble_name || attr.device_name || attr.model_name || '').trim();
-    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
-      ? Boolean(this._config.is_4ch_rgb_uv)
-      : (attr.is_4ch_rgb_uv || (bleName && (
-          bleName.toUpperCase().includes('M800') ||
-          bleName.toUpperCase().includes('M600') ||
-          bleName.toUpperCase().includes('M-PRO') ||
-          bleName.toUpperCase().includes('M PRO') ||
-          bleName.toUpperCase().includes('MPRO') ||
-          bleName.toUpperCase().includes('S-PRO') ||
-          bleName.toUpperCase().includes('SPRO') ||
-          bleName.toUpperCase().includes('S400') ||
-          bleName.toUpperCase().includes('S600') ||
-          bleName.toUpperCase().includes('S800') ||
-          bleName.toUpperCase().includes('T90') ||
-          bleName.toUpperCase().includes('P600') ||
-          bleName.toUpperCase().includes('P800') ||
-          bleName.toUpperCase().includes('P900') ||
-          bleName.toUpperCase().includes('P1200') ||
-          bleName.toUpperCase().includes('Z400') ||
-          bleName.toUpperCase().includes('Z600')
-        )));
-    const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
-    const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
-    const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
+      const bleName = (attr.ble_name || attr.device_name || attr.model_name || '').trim();
+      const is4ChRgbUv = (this._config && this._config.is_4ch_rgb_uv !== undefined)
+        ? Boolean(this._config.is_4ch_rgb_uv)
+        : (attr.is_4ch_rgb_uv || (bleName && (
+            bleName.toUpperCase().includes('M800') ||
+            bleName.toUpperCase().includes('M600') ||
+            bleName.toUpperCase().includes('M-PRO') ||
+            bleName.toUpperCase().includes('M PRO') ||
+            bleName.toUpperCase().includes('MPRO') ||
+            bleName.toUpperCase().includes('S-PRO') ||
+            bleName.toUpperCase().includes('SPRO') ||
+            bleName.toUpperCase().includes('S400') ||
+            bleName.toUpperCase().includes('S600') ||
+            bleName.toUpperCase().includes('S800') ||
+            bleName.toUpperCase().includes('T90') ||
+            bleName.toUpperCase().includes('P600') ||
+            bleName.toUpperCase().includes('P800') ||
+            bleName.toUpperCase().includes('P900') ||
+            bleName.toUpperCase().includes('P1200') ||
+            bleName.toUpperCase().includes('Z400') ||
+            bleName.toUpperCase().includes('Z600')
+          )));
+      const hasWhite = attr.has_white !== undefined ? attr.has_white : !is4ChRgbUv;
+      const hasUv = attr.has_uv !== undefined ? Boolean(attr.has_uv) : (is4ChRgbUv || false);
+      const has6ch = attr.has_6ch !== undefined ? Boolean(attr.has_6ch) : false;
 
-    // Check layout signature to avoid unnecessary DOM mutations
-    const layoutKey = `${bleName}_${attr.model_code || ''}_${attr.mac || ''}_${this._config.title || ''}_${is4ChRgbUv}_${hasWhite}_${hasUv}_${has6ch}`;
-    if (this._lastLayoutKey === layoutKey) {
-      return;
-    }
-    this._lastLayoutKey = layoutKey;
+      // Check layout signature to avoid unnecessary DOM mutations
+      const layoutKey = `${bleName}_${attr.model_code || ''}_${attr.mac || ''}_${(this._config && this._config.title) || ''}_${is4ChRgbUv}_${hasWhite}_${hasUv}_${has6ch}`;
+      if (this._lastLayoutKey === layoutKey) {
+        return;
+      }
+      this._lastLayoutKey = layoutKey;
 
-    // Dynamic Title & Hardware Tag
-    const titleEl = root.getElementById('card-title-text');
-    const stateObj = (this._hass && this._config.entity) ? this._hass.states[this._config.entity] : null;
-    const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
-    const customTitle = this._config.title;
-    const modelCode = (attr.model_code || '').trim();
-    const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
+      // Dynamic Title & Hardware Tag
+      const titleEl = root.getElementById('card-title-text');
+      const stateObj = (this._hass && this._config && this._config.entity) ? this._hass.states[this._config.entity] : null;
+      const friendlyName = (stateObj && stateObj.attributes && stateObj.attributes.friendly_name) || '';
+      const customTitle = this._config ? this._config.title : '';
+      const modelCode = (attr.model_code || '').trim();
+      const mac = (attr.mac || (this._config && this._config.mac) || '').trim();
 
-    // Strip redundant "Aquarium Light" or "Light" from parenthetical friendly tag
-    let cleanFriendly = (friendlyName || '')
-      .replace(/\s*Aquarium\s*Light/ig, '')
-      .replace(/\s*Light/ig, '')
-      .trim();
-    if (!cleanFriendly) cleanFriendly = friendlyName;
+      // Strip redundant "Aquarium Light" or "Light" from parenthetical friendly tag
+      let cleanFriendly = (friendlyName || '')
+        .replace(/\s*Aquarium\s*Light/ig, '')
+        .replace(/\s*Light/ig, '')
+        .trim();
+      if (!cleanFriendly) cleanFriendly = friendlyName;
 
-    const baseTitle = customTitle || 'WeekAqua Aquarium Light';
-    let titleStr = baseTitle;
-    if (cleanFriendly && !baseTitle.toUpperCase().includes(cleanFriendly.toUpperCase())) {
-      titleStr = `${baseTitle} (${cleanFriendly})`;
-    }
-    if (titleEl && titleEl.textContent !== titleStr) {
-      titleEl.textContent = titleStr;
-    }
+      const baseTitle = customTitle || 'WeekAqua Aquarium Light';
+      let titleStr = baseTitle;
+      if (cleanFriendly && !baseTitle.toUpperCase().includes(cleanFriendly.toUpperCase())) {
+        titleStr = `${baseTitle} (${cleanFriendly})`;
+      }
+      if (titleEl && titleEl.textContent !== titleStr) {
+        titleEl.textContent = titleStr;
+      }
 
     // Hardware Info Tag in Connection Bar: 🏷️ [Model / Name] • 📶 [MAC]
     const devTag = root.getElementById('conn-device-tag');
@@ -2072,116 +2108,129 @@ class WeekAquaCard extends HTMLElement {
     }
 
     this._updateGauge();
+    } catch (err) {
+      console.warn("WeekAquaCard _applyModelLayout error:", err);
+    }
   }
 
   _updateState() {
-    if (!this._hass || !this._hass.states || !this._config || !this._config.entity || !this.shadowRoot) return;
-    const stateObj = this._hass.states[this._config.entity];
-    if (stateObj) {
-      const isOnline = Boolean(stateObj.attributes && stateObj.attributes.connected);
-      this._setConnectionStatus(isOnline);
+    try {
+      if (!this._hass || !this._hass.states || !this._config || !this._config.entity || !this.shadowRoot) return;
+      const stateObj = this._hass.states[this._config.entity];
+      if (stateObj) {
+        const isOnline = Boolean(stateObj.attributes && stateObj.attributes.connected);
+        this._setConnectionStatus(isOnline);
 
-      if (stateObj.attributes) {
-        const attr = stateObj.attributes;
-        this._applyModelLayout(attr);
+        if (stateObj.attributes) {
+          const attr = stateObj.attributes;
+          this._applyModelLayout(attr);
 
-        // Synchronize hardware operation mode (Mode 1 Live vs Mode 2 Schedule)
-        if (attr.current_mode !== undefined) {
-          this._updateModeUI(attr.current_mode);
-        }
+          // Synchronize hardware operation mode (Mode 1 Live vs Mode 2 Schedule)
+          if (attr.current_mode !== undefined) {
+            this._updateModeUI(attr.current_mode);
+          }
 
-        // Synchronize dynamic schedule running state
-        if (attr.schedule_enabled !== undefined) {
-          this._scheduleEnabled = Boolean(attr.schedule_enabled);
-          this._updateScheduleToggleUI(this._scheduleEnabled);
-        }
+          // Synchronize dynamic schedule running state
+          if (attr.schedule_enabled !== undefined) {
+            this._scheduleEnabled = Boolean(attr.schedule_enabled);
+            this._updateScheduleToggleUI(this._scheduleEnabled);
+          }
 
-        // Synchronize moonlight retention & brightness from entity attributes (with fallback)
-        let mlBrightness = attr.moonlight_brightness;
-        let mlKeep = attr.keep_moonlight;
+          // Synchronize moonlight retention & brightness from entity attributes (with fallback)
+          let mlBrightness = attr.moonlight_brightness;
+          let mlKeep = attr.keep_moonlight;
 
-        if (mlBrightness === undefined && this._hass && this._hass.states) {
-          const entityKey = (this._config.entity || '').replace(/^light\./, '');
-          for (const [eId, eState] of Object.entries(this._hass.states)) {
-            if (eId.startsWith('number.') && eId.includes('moonlight') && (eId.includes(entityKey) || (attr.mac && eId.includes(attr.mac.replace(/:/g, '').toLowerCase())))) {
-              if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
-                mlBrightness = parseFloat(eState.state);
-                break;
+          if (mlBrightness === undefined && this._hass && this._hass.states) {
+            const entityKey = (this._config.entity || '').replace(/^light\./, '');
+            for (const [eId, eState] of Object.entries(this._hass.states)) {
+              if (eId.startsWith('number.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
+                if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
+                  const parsed = parseFloat(eState.state);
+                  if (Number.isFinite(parsed)) {
+                    mlBrightness = parsed;
+                    break;
+                  }
+                }
               }
             }
           }
-        }
-        if (mlKeep === undefined && this._hass && this._hass.states) {
-          const entityKey = (this._config.entity || '').replace(/^light\./, '');
-          for (const [eId, eState] of Object.entries(this._hass.states)) {
-            if (eId.startsWith('switch.') && eId.includes('moonlight') && (eId.includes(entityKey) || (attr.mac && eId.includes(attr.mac.replace(/:/g, '').toLowerCase())))) {
-              if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
-                mlKeep = (eState.state === 'on');
-                break;
+          if (mlKeep === undefined && this._hass && this._hass.states) {
+            const entityKey = (this._config.entity || '').replace(/^light\./, '');
+            for (const [eId, eState] of Object.entries(this._hass.states)) {
+              if (eId.startsWith('switch.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
+                if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
+                  mlKeep = (eState.state === 'on');
+                  break;
+                }
               }
             }
           }
-        }
 
-        if (mlBrightness !== undefined) {
-          this._moonlightBrightness = parseFloat(mlBrightness) || this._moonlightBrightness;
-        }
-        if (mlKeep !== undefined) {
-          this._keepMoonlight = Boolean(mlKeep);
-        }
-        this._updateMoonlightUI();
-
-        // Synchronize and restore schedule points and metadata from HA entity attributes
-        if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {
-          if (!this._hasLoadedInitialSchedule) {
-            this._schedulePoints = JSON.parse(JSON.stringify(attr.schedule_points));
-            this._hasLoadedInitialSchedule = true;
-            if (attr.schedule_meta) {
-              this._scheduleMeta = attr.schedule_meta;
-              this._applyScheduleMeta(attr.schedule_meta);
+          if (mlBrightness !== undefined) {
+            const parsed = parseFloat(mlBrightness);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              this._moonlightBrightness = parsed;
             }
-            this._renderScheduleTable();
-            this._renderCurve();
           }
-        }
+          if (mlKeep !== undefined) {
+            this._keepMoonlight = Boolean(mlKeep);
+          }
+          this._updateMoonlightUI();
 
-        if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
-          this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);
-        } else if (attr.rgbw_color) {
-          const [r255, g255, b255, w255] = attr.rgbw_color;
-          this._setSliderValues(
-            Math.round(r255 / 2.55),
-            Math.round(g255 / 2.55),
-            Math.round(b255 / 2.55),
-            Math.round(w255 / 2.55),
-            0,
-            0
-          );
-        }
-
-        // Update BLE Packet Monitor Logs & Queue size badge
-        const root = this.shadowRoot;
-        if (root) {
-          const queueBadge = root.getElementById('log-queue-badge');
-          if (queueBadge) {
-            const qSize = attr.queue_size !== undefined ? attr.queue_size : 0;
-            queueBadge.textContent = `Q: ${qSize}/10`;
-            queueBadge.style.background = qSize > 5 ? '#DC2626' : (qSize > 0 ? '#0284C7' : '#3F3F46');
+          // Synchronize and restore schedule points and metadata from HA entity attributes
+          if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {
+            if (!this._hasLoadedInitialSchedule) {
+              this._schedulePoints = JSON.parse(JSON.stringify(attr.schedule_points));
+              this._hasLoadedInitialSchedule = true;
+              if (attr.schedule_meta) {
+                this._scheduleMeta = attr.schedule_meta;
+                this._applyScheduleMeta(attr.schedule_meta);
+              }
+              this._renderScheduleTable();
+              this._renderCurve();
+            }
           }
 
-          if (attr.ble_logs && Array.isArray(attr.ble_logs)) {
-            const logs = attr.ble_logs;
-            if (logs.length > 0) {
-              const latestId = logs[logs.length - 1].id || 0;
-              this._maxLogId = Math.max(this._maxLogId || 0, latestId);
+          if ('r' in attr && 'g' in attr && 'b' in attr && 'w' in attr) {
+            this._setSliderValues(attr.r, attr.g, attr.b, attr.w, attr.uv || 0, attr.v || 0);
+          } else if (attr.rgbw_color) {
+            const [r255, g255, b255, w255] = attr.rgbw_color;
+            this._setSliderValues(
+              Math.round(r255 / 2.55),
+              Math.round(g255 / 2.55),
+              Math.round(b255 / 2.55),
+              Math.round(w255 / 2.55),
+              0,
+              0
+            );
+          }
+
+          // Update BLE Packet Monitor Logs & Queue size badge
+          const root = this.shadowRoot;
+          if (root) {
+            const queueBadge = root.getElementById('log-queue-badge');
+            if (queueBadge) {
+              const qSize = attr.queue_size !== undefined ? attr.queue_size : 0;
+              queueBadge.textContent = `Q: ${qSize}/10`;
+              queueBadge.style.background = qSize > 5 ? '#DC2626' : (qSize > 0 ? '#0284C7' : '#3F3F46');
             }
-            const visibleLogs = this._clearedLogId
-              ? logs.filter((l) => (l.id !== undefined ? l.id > this._clearedLogId : true))
-              : logs;
-            this._renderLogs(visibleLogs);
+
+            if (attr.ble_logs && Array.isArray(attr.ble_logs)) {
+              const logs = attr.ble_logs;
+              if (logs.length > 0) {
+                const latestId = logs[logs.length - 1].id || 0;
+                this._maxLogId = Math.max(this._maxLogId || 0, latestId);
+              }
+              const visibleLogs = this._clearedLogId
+                ? logs.filter((l) => (l.id !== undefined ? l.id > this._clearedLogId : true))
+                : logs;
+              this._renderLogs(visibleLogs);
+            }
           }
         }
       }
+    } catch (err) {
+      console.warn("WeekAquaCard _updateState error:", err);
     }
   }
 
