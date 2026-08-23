@@ -71,20 +71,32 @@ class WeekAquaCard extends HTMLElement {
       throw new Error('Invalid configuration');
     }
     this._config = Object.assign({}, config);
+    this._restoreFromLocalStorage();
     this._render();
-    if (this._hass) {
+    if (this._hass && this._config && this._config.entity && this.shadowRoot) {
       this._updateState();
     }
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._updateState();
+    if (this._config && this._config.entity && this.shadowRoot) {
+      this._updateState();
+    }
+  }
+
+  connectedCallback() {
+    if (this._config && (!this.shadowRoot || !this.shadowRoot.hasChildNodes())) {
+      this._render();
+    }
+    if (this._hass && this._config && this._config.entity && this.shadowRoot) {
+      this._updateState();
+    }
   }
 
   _calculatePower(r, g, b, w, uv = 0, v = 0) {
     const attr = this._modelInfo || {};
-    const is4ChRgbUv = this._config.is_4ch_rgb_uv !== undefined
+    const is4ChRgbUv = (this._config && this._config.is_4ch_rgb_uv !== undefined)
       ? Boolean(this._config.is_4ch_rgb_uv)
       : (attr.is_4ch_rgb_uv || (attr.device_name && (
           attr.device_name.toUpperCase().includes('M800') ||
@@ -1142,25 +1154,31 @@ class WeekAquaCard extends HTMLElement {
     }
 
     // Manual Connect / Disconnect buttons
-    root.getElementById('btn-manual-conn').addEventListener('click', () => {
-      if (this._hass) {
-        this._hass.callService('weekaqua', 'connect', {
-          device_id: this._config.device_id || '',
-          entity_id: this._config.entity || '',
-        });
-      }
-      this._setConnectionStatus(true);
-    });
+    const btnConn = root.getElementById('btn-manual-conn');
+    if (btnConn) {
+      btnConn.addEventListener('click', () => {
+        if (this._hass && this._config) {
+          this._hass.callService('weekaqua', 'connect', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+          });
+        }
+        this._setConnectionStatus(true);
+      });
+    }
 
-    root.getElementById('btn-manual-disconn').addEventListener('click', () => {
-      if (this._hass) {
-        this._hass.callService('weekaqua', 'disconnect', {
-          device_id: this._config.device_id || '',
-          entity_id: this._config.entity || '',
-        });
-      }
-      this._setConnectionStatus(false);
-    });
+    const btnDisconn = root.getElementById('btn-manual-disconn');
+    if (btnDisconn) {
+      btnDisconn.addEventListener('click', () => {
+        if (this._hass && this._config) {
+          this._hass.callService('weekaqua', 'disconnect', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+          });
+        }
+        this._setConnectionStatus(false);
+      });
+    }
 
     // Sliders with user interaction tracking
     ['r', 'g', 'b', 'w', 'uv', 'v'].forEach((ch) => {
@@ -1250,12 +1268,15 @@ class WeekAquaCard extends HTMLElement {
     }
 
     // Schedule: Add Point
-    root.getElementById('btn-add-pt').addEventListener('click', () => {
-      this._schedulePoints.push({ time: '12:00', r: 50, g: 50, b: 50, w: 50, uv: 0, v: 0 });
-      if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
-      this._renderScheduleTable();
-      this._renderCurve();
-    });
+    const btnAddPt = root.getElementById('btn-add-pt');
+    if (btnAddPt) {
+      btnAddPt.addEventListener('click', () => {
+        this._schedulePoints.push({ time: '12:00', r: 50, g: 50, b: 50, w: 50, uv: 0, v: 0 });
+        if (slotsInput) slotsInput.value = String(this._schedulePoints.length);
+        this._renderScheduleTable();
+        this._renderCurve();
+      });
+    }
 
     // Schedule: Enable / Disable Toggle Button
     const btnToggleSched = root.getElementById('btn-toggle-sched');
@@ -1264,7 +1285,7 @@ class WeekAquaCard extends HTMLElement {
         const nextState = !this._scheduleEnabled;
         this._scheduleEnabled = nextState;
         this._updateScheduleToggleUI(nextState);
-        if (this._hass) {
+        if (this._hass && this._config) {
           this._hass.callService('weekaqua', 'set_schedule_enabled', {
             device_id: this._config.device_id || '',
             entity_id: this._config.entity || '',
@@ -1275,7 +1296,10 @@ class WeekAquaCard extends HTMLElement {
     }
 
     // Schedule: Save
-    root.getElementById('btn-save-sched').addEventListener('click', () => this._saveScheduleToHA());
+    const btnSaveSched = root.getElementById('btn-save-sched');
+    if (btnSaveSched) {
+      btnSaveSched.addEventListener('click', () => this._saveScheduleToHA());
+    }
 
     // Log Viewer Controls
     const logHeader = root.getElementById('log-header');
@@ -1409,29 +1433,49 @@ class WeekAquaCard extends HTMLElement {
 
   _updateGauge() {
     const root = this.shadowRoot;
-    const r = parseFloat(root.getElementById('sl-r').value) || 0;
-    const g = parseFloat(root.getElementById('sl-g').value) || 0;
-    const b = parseFloat(root.getElementById('sl-b').value) || 0;
-    const w = parseFloat(root.getElementById('sl-w').value) || 0;
-    const uv = parseFloat(root.getElementById('sl-uv').value) || 0;
-    const v = parseFloat(root.getElementById('sl-v').value) || 0;
+    if (!root) return;
+    const slR = root.getElementById('sl-r');
+    const slG = root.getElementById('sl-g');
+    const slB = root.getElementById('sl-b');
+    const slW = root.getElementById('sl-w');
+    const slUv = root.getElementById('sl-uv');
+    const slV = root.getElementById('sl-v');
+    if (!slR || !slG || !slB || !slW) return;
+
+    const r = parseFloat(slR.value) || 0;
+    const g = parseFloat(slG.value) || 0;
+    const b = parseFloat(slB.value) || 0;
+    const w = parseFloat(slW.value) || 0;
+    const uv = parseFloat(slUv ? slUv.value : 0) || 0;
+    const v = parseFloat(slV ? slV.value : 0) || 0;
 
     const total = this._calculatePower(r, g, b, w, uv, v);
-    root.getElementById('gauge-fill').style.width = `${total}%`;
-    root.getElementById('gauge-txt').textContent = `${total.toFixed(1)}%`;
+    const fill = root.getElementById('gauge-fill');
+    const txt = root.getElementById('gauge-txt');
+    if (fill) fill.style.width = `${total}%`;
+    if (txt) txt.textContent = `${total.toFixed(1)}%`;
   }
 
   _sendLiveSpectrum() {
     this._updateModeUI(1);
     const root = this.shadowRoot;
-    const r = parseFloat(root.getElementById('sl-r').value) || 0;
-    const g = parseFloat(root.getElementById('sl-g').value) || 0;
-    const b = parseFloat(root.getElementById('sl-b').value) || 0;
-    const w = parseFloat(root.getElementById('sl-w').value) || 0;
-    const uv = parseFloat(root.getElementById('sl-uv').value) || 0;
-    const v = parseFloat(root.getElementById('sl-v').value) || 0;
+    if (!root) return;
+    const slR = root.getElementById('sl-r');
+    const slG = root.getElementById('sl-g');
+    const slB = root.getElementById('sl-b');
+    const slW = root.getElementById('sl-w');
+    const slUv = root.getElementById('sl-uv');
+    const slV = root.getElementById('sl-v');
+    if (!slR || !slG || !slB || !slW) return;
 
-    if (this._hass) {
+    const r = parseFloat(slR.value) || 0;
+    const g = parseFloat(slG.value) || 0;
+    const b = parseFloat(slB.value) || 0;
+    const w = parseFloat(slW.value) || 0;
+    const uv = parseFloat(slUv ? slUv.value : 0) || 0;
+    const v = parseFloat(slV ? slV.value : 0) || 0;
+
+    if (this._hass && this._config && this._config.entity) {
       this._hass.callService('weekaqua', 'set_spectrum', {
         device_id: this._config.device_id || '',
         entity_id: this._config.entity || '',
@@ -2031,7 +2075,7 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _updateState() {
-    if (!this._hass || !this._config.entity) return;
+    if (!this._hass || !this._hass.states || !this._config || !this._config.entity || !this.shadowRoot) return;
     const stateObj = this._hass.states[this._config.entity];
     if (stateObj) {
       const isOnline = Boolean(stateObj.attributes && stateObj.attributes.connected);
