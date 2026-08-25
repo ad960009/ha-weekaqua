@@ -571,13 +571,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _send_live_spectrum_with_mode(self, packet: bytes, force_mode: bool = False) -> None:
         if not self.is_connected or self._current_mode != 1 or force_mode:
             self._current_mode = 1
-            # 1. Mode 1 Transition
-            await self.enqueue_packet(bytes([0xFD, 0xF1, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55]))
-            # 2. Live Spectrum
-            await self.enqueue_packet(packet, is_live_spectrum=True)
-            # 3. Open Timers
-            await self.enqueue_packet(bytes([0xFE, 0xEF, 0x00, 0x00, 0x24, 0x00, 0x55, 0x55]))
-            await self.enqueue_packet(bytes([0xFE, 0xF9, 0x00, 0x00, 0x24, 0x00, 0x01, 0x00]))
+            seq = WeekAquaProtocol.build_live_mode_sequence(
+                spectrum_packet=packet,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv(),
+                model_code=self.model_code,
+            )
+            for pkt in seq:
+                is_live = (pkt == packet)
+                await self.enqueue_packet(pkt, is_live_spectrum=is_live)
         else:
             await self.enqueue_packet(packet, is_live_spectrum=True)
 
