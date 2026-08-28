@@ -79,6 +79,17 @@ class WeekAquaChannelNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity
         )
 
     @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Disable non-physical channels by default depending on model hardware."""
+        if self.ch_id == "white" and self.coordinator._is_4ch_rgb_uv():
+            return False
+        if self.ch_id == "violet" and self.coordinator.model_code not in ("5749", "5750", "5751", "5752"):
+            names = [(self.coordinator.ble_name or "").upper(), (self.coordinator.device_name or "").upper()]
+            if not any("6CH" in n or "10CH" in n for n in names):
+                return False
+        return True
+
+    @property
     def native_value(self) -> float:
         """Return current channel percentage."""
         if self.ch_id == "red":
@@ -88,7 +99,7 @@ class WeekAquaChannelNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity
         elif self.ch_id == "blue":
             return self.coordinator.current_b
         elif self.ch_id == "white":
-            return self.coordinator.current_w
+            return 0.0 if self.coordinator._is_4ch_rgb_uv() else self.coordinator.current_w
         elif self.ch_id == "uv":
             return self.coordinator.current_uv
         elif self.ch_id == "violet":
@@ -109,6 +120,10 @@ class WeekAquaChannelNumber(CoordinatorEntity[WeekAquaCoordinator], NumberEntity
         w = value if self.ch_id == "white" else self.coordinator.current_w
         uv = value if self.ch_id == "uv" else self.coordinator.current_uv
         v = value if self.ch_id == "violet" else self.coordinator.current_v
+
+        if self.coordinator._is_4ch_rgb_uv() and self.ch_id == "white":
+            uv = value
+            w = 0.0
 
         await self.coordinator.async_set_spectrum(r, g, b, w, uv, v, disable_schedule=True)
 

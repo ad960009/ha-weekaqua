@@ -746,18 +746,18 @@ class WeekAquaCard extends HTMLElement {
           <div class="slider-group" id="sliders-container">
             <div class="slider-row" id="row-r">
               <span class="channel-label" id="lbl-r" style="color: #EF4444">Red</span>
-              <input type="range" id="sl-r" min="0" max="100" value="50">
-              <span class="val-badge" id="txt-r">50%</span>
+              <input type="range" id="sl-r" min="0" max="100" value="0">
+              <span class="val-badge" id="txt-r">0%</span>
             </div>
             <div class="slider-row" id="row-g">
               <span class="channel-label" id="lbl-g" style="color: #22C55E">Green</span>
-              <input type="range" id="sl-g" min="0" max="100" value="50">
-              <span class="val-badge" id="txt-g">50%</span>
+              <input type="range" id="sl-g" min="0" max="100" value="0">
+              <span class="val-badge" id="txt-g">0%</span>
             </div>
             <div class="slider-row" id="row-b">
               <span class="channel-label" id="lbl-b" style="color: #3B82F6">Blue</span>
-              <input type="range" id="sl-b" min="0" max="100" value="50">
-              <span class="val-badge" id="txt-b">50%</span>
+              <input type="range" id="sl-b" min="0" max="100" value="0">
+              <span class="val-badge" id="txt-b">0%</span>
             </div>
             <div class="slider-row" id="row-uv">
               <span class="channel-label" id="lbl-uv" style="color: #C084FC">UV</span>
@@ -766,8 +766,8 @@ class WeekAquaCard extends HTMLElement {
             </div>
             <div class="slider-row" id="row-w">
               <span class="channel-label" id="lbl-w" style="color: #F4F4F5">White</span>
-              <input type="range" id="sl-w" min="0" max="100" value="50">
-              <span class="val-badge" id="txt-w">50%</span>
+              <input type="range" id="sl-w" min="0" max="100" value="0">
+              <span class="val-badge" id="txt-w">0%</span>
             </div>
             <div class="slider-row" id="row-v" style="display: none;">
               <span class="channel-label" id="lbl-v" style="color: #EC4899">Violet</span>
@@ -779,9 +779,9 @@ class WeekAquaCard extends HTMLElement {
           <div class="gauge-wrap">
             <span style="font-size: 11px; font-weight: 700; color: #10B981">⚡ Total Load:</span>
             <div class="gauge-bar-bg">
-              <div class="gauge-bar-fill" id="gauge-fill" style="width: 50%"></div>
+              <div class="gauge-bar-fill" id="gauge-fill" style="width: 0%"></div>
             </div>
-            <span style="font-size: 11px; font-weight: 700;" id="gauge-txt">50.0%</span>
+            <span style="font-size: 11px; font-weight: 700;" id="gauge-txt">0.0%</span>
           </div>
 
           <div class="presets-title">🎨 Spectrum Presets (One-Click)</div>
@@ -1562,9 +1562,7 @@ class WeekAquaCard extends HTMLElement {
 
     if (!force) {
       const isInteracting = this._isUserInteractingSliders || (Date.now() - (this._lastUserSliderInteractionTime || 0) < 1500);
-      const activeEl = root.activeElement;
-      const isActiveSlider = activeEl && activeEl.id && activeEl.id.startsWith('sl-');
-      if (isInteracting || isActiveSlider) {
+      if (isInteracting) {
         return; // Preserve user's active drag/edit on sliders
       }
     }

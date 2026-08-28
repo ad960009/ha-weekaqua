@@ -70,24 +70,33 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
     @property
     def brightness(self) -> int:
         """Return 0~255 master brightness based on maximum channel output."""
-        max_ch = max(
-            self.coordinator.current_r,
-            self.coordinator.current_g,
-            self.coordinator.current_b,
-            self.coordinator.current_w,
-            self.coordinator.current_uv,
-            self.coordinator.current_v,
-        )
+        if self._is_4ch_rgb_uv():
+            max_ch = max(
+                self.coordinator.current_r,
+                self.coordinator.current_g,
+                self.coordinator.current_b,
+                self.coordinator.current_uv,
+            )
+        else:
+            max_ch = max(
+                self.coordinator.current_r,
+                self.coordinator.current_g,
+                self.coordinator.current_b,
+                self.coordinator.current_w,
+                self.coordinator.current_uv,
+                self.coordinator.current_v,
+            )
         return int(round(max_ch * 2.55))
 
     @property
     def rgbw_color(self) -> tuple[int, int, int, int]:
-        """Return current RGBW channel intensities scaled to 0-255."""
+        """Return current RGBW channel intensities scaled to 0-255 (Channel 4 maps to UV for 4CH RGB/UV)."""
+        w_or_uv = self.coordinator.current_uv if self._is_4ch_rgb_uv() else self.coordinator.current_w
         return (
             int(round(self.coordinator.current_r * 2.55)),
             int(round(self.coordinator.current_g * 2.55)),
             int(round(self.coordinator.current_b * 2.55)),
-            int(round(self.coordinator.current_w * 2.55)),
+            int(round(w_or_uv * 2.55)),
         )
 
     def _is_4ch_rgb_uv(self) -> bool:
@@ -205,8 +214,11 @@ class WeekAquaLight(CoordinatorEntity[WeekAquaCoordinator], LightEntity):
             r = rgbw[0] / 2.55
             g = rgbw[1] / 2.55
             b = rgbw[2] / 2.55
-            w = rgbw[3] / 2.55
-            await self.coordinator.async_set_spectrum(r, g, b, w, self.coordinator.current_uv, self.coordinator.current_v)
+            w_or_uv = rgbw[3] / 2.55
+            if self._is_4ch_rgb_uv():
+                await self.coordinator.async_set_spectrum(r, g, b, 0.0, uv=w_or_uv, violet=0.0)
+            else:
+                await self.coordinator.async_set_spectrum(r, g, b, w_or_uv, self.coordinator.current_uv, self.coordinator.current_v)
         elif ATTR_BRIGHTNESS in kwargs:
             target_scale = kwargs[ATTR_BRIGHTNESS] / 255.0
             cur_max = max(1.0, self.brightness / 2.55)

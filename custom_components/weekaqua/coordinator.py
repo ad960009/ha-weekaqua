@@ -158,6 +158,11 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_v: float = float(entry_data.get("current_v", 0.0))
         self.current_fan: float = float(entry_data.get("current_fan", 50.0))
 
+        if self._is_4ch_rgb_uv():
+            if self.current_w > 0 and self.current_uv == 0.0:
+                self.current_uv = self.current_w
+            self.current_w = 0.0
+
         # Sensor state
         self.is_connected: bool = False
         self.power_kwh: float = 0.0
@@ -760,11 +765,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._manual_disconnected = False
                 await self._send_live_spectrum_with_mode(packet)
 
+        if self._is_4ch_rgb_uv():
+            self.current_w = 0.0
+
         self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
             self.current_r, self.current_g, self.current_b, self.current_w,
             self.current_uv, self.current_v, self.model_code
         )
-        self.async_set_updated_data(self._build_data())
+        return self._build_data()
 
     async def async_set_schedule_enabled(self, enabled: bool) -> None:
         """Enable or disable dynamic unlimited schedule."""
@@ -778,6 +786,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.current_w = target.w
             self.current_uv = target.uv
             self.current_v = target.violet
+
+            if self._is_4ch_rgb_uv():
+                self.current_w = 0.0
 
             packet = WeekAquaProtocol.build_live_spectrum_packet(
                 self.current_r, self.current_g, self.current_b, self.current_w,
@@ -943,13 +954,23 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if disable_schedule:
             self.schedule_enabled = False
 
+        if self._is_4ch_rgb_uv():
+            if w > 0 and uv == 0.0:
+                uv = w
+            w = 0.0
+
         norm = WeekAquaProtocol.normalize_spectrum_to_max_power(r, g, b, w, uv, violet, self.model_code)
         self.current_r = norm.r
         self.current_g = norm.g
         self.current_b = norm.b
-        self.current_w = norm.w
+        self.current_w = 0.0 if self._is_4ch_rgb_uv() else norm.w
         self.current_uv = norm.uv
         self.current_v = norm.violet
+
+        self.total_power_pct = WeekAquaProtocol.calculate_total_power_percent(
+            self.current_r, self.current_g, self.current_b, self.current_w,
+            self.current_uv, self.current_v, self.model_code
+        )
 
         packet = WeekAquaProtocol.build_live_spectrum_packet(
             self.current_r, self.current_g, self.current_b, self.current_w,
