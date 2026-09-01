@@ -14,7 +14,8 @@
         "description": "Enter the Bluetooth MAC address of your WeekAqua light (e.g. AA:BB:CC:11:22:33).",
         "data": {
           "mac": "Bluetooth MAC Address",
-          "name": "Custom Name"
+          "name": "Custom Name",
+          "model_code": "Hardware Model"
         }
       },
       "bluetooth_confirm": {
@@ -23,13 +24,33 @@
         "data": {
           "name": "Device Name"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure WeekAqua Device & Model",
+        "description": "Current Device: {current_name} ({current_mac}) [{current_model}]\nSelect a new Bluetooth device or hardware model to reconfigure.",
+        "data": {
+          "mac": "Target Bluetooth Device",
+          "name": "Device Name",
+          "model_code": "Hardware Model Specification"
+        }
+      },
+      "reconfigure_manual": {
+        "title": "Manually Reconfigure WeekAqua MAC & Model",
+        "description": "Current Device: {current_name} ({current_mac})\nEnter new MAC address and hardware model specification.",
+        "data": {
+          "mac": "New Bluetooth MAC Address",
+          "name": "Device Name",
+          "model_code": "Hardware Model Specification"
+        }
       }
     },
     "error": {
       "invalid_mac": "Invalid Bluetooth MAC address format (expected e.g. AA:BB:CC:11:22:33)."
     },
     "abort": {
-      "already_configured": "This WeekAqua device is already configured."
+      "already_configured": "This WeekAqua device MAC is already configured in another entry.",
+      "reconfigure_successful": "WeekAqua device and model specification successfully reconfigured.",
+      "reconfigure_failed": "Cannot find the target config entry to reconfigure."
     }
   }
 }

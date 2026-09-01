@@ -14,7 +14,8 @@
         "description": "WeekAqua 조명의 블루투스 MAC 주소(예: AA:BB:CC:11:22:33)를 입력하세요.",
         "data": {
           "mac": "블루투스 MAC 주소",
-          "name": "기기 이름"
+          "name": "기기 이름",
+          "model_code": "하드웨어 모델"
         }
       },
       "bluetooth_confirm": {
@@ -23,13 +24,33 @@
         "data": {
           "name": "기기 이름"
         }
+      },
+      "reconfigure": {
+        "title": "WeekAqua 기기 및 모델 재구성",
+        "description": "현재 기기: {current_name} ({current_mac}) [{current_model}]\n새로 변경할 블루투스 기기 또는 하드웨어 모델을 선택하세요.",
+        "data": {
+          "mac": "블루투스 기기 선택",
+          "name": "기기 이름",
+          "model_code": "하드웨어 모델 규격"
+        }
+      },
+      "reconfigure_manual": {
+        "title": "WeekAqua MAC / 모델 직접 수정",
+        "description": "현재 기기: {current_name} ({current_mac})\n변경할 블루투스 MAC 주소 및 하드웨어 모델을 입력하세요.",
+        "data": {
+          "mac": "새 블루투스 MAC 주소",
+          "name": "기기 이름",
+          "model_code": "하드웨어 모델 규격"
+        }
       }
     },
     "error": {
       "invalid_mac": "올바른 블루투스 MAC 주소 형식이 아닙니다 (예: AA:BB:CC:11:22:33)."
     },
     "abort": {
-      "already_configured": "이미 등록된 WeekAqua 기기입니다."
+      "already_configured": "이미 다른 엔트리에 등록된 WeekAqua 기기 MAC 주소입니다.",
+      "reconfigure_successful": "WeekAqua 기기 및 모델 정보가 성공적으로 재구성되었습니다.",
+      "reconfigure_failed": "재구성할 기기 정보를 찾을 수 없습니다."
     }
   }
 }
