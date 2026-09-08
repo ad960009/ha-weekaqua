@@ -12,8 +12,9 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 URL_BASE = "/weekaqua_static"
+LOCAL_URL_BASE = "/local"
 CARD_FILENAME = "weekaqua-card.js"
-VERSION = "1.3.12"
+VERSION = "1.3.13"
 
 
 def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:
@@ -48,21 +49,24 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
         _LOGGER.warning("WeekAqua Lovelace Card JS not found")
         return
 
-    # 1. Host JS statically via HA HTTP server (/weekaqua_static/weekaqua-card.js)
-    card_url = f"{URL_BASE}/{CARD_FILENAME}"
+    # 1. Host JS statically via HA HTTP server for backwards compatibility
+    legacy_url = f"{URL_BASE}/{CARD_FILENAME}"
     try:
         if hasattr(hass.http, "async_register_static_paths"):
             await hass.http.async_register_static_paths([
-                StaticPathConfig(card_url, source_js, cache_headers=False)
+                StaticPathConfig(legacy_url, source_js, cache_headers=False)
             ])
         else:
-            hass.http.register_static_path(card_url, source_js, cache_headers=False)
+            hass.http.register_static_path(legacy_url, source_js, cache_headers=False)
     except Exception as err:
         _LOGGER.debug("Static path registration: %s", err)
 
-    # 2. Add to extra_js_url (loads card globally across Lovelace without manual resource registration)
+    # 2. Prefer reliable /local/ path served natively by Home Assistant Core webserver
+    #    This avoids 404 race conditions where the dashboard loads before the custom component finishes BLE setup.
+    target_url = f"{LOCAL_URL_BASE}/{CARD_FILENAME}?v={VERSION}"
+
     try:
-        add_extra_js_url(hass, f"{card_url}?v={VERSION}")
+        add_extra_js_url(hass, target_url)
     except Exception as err:
         _LOGGER.debug("add_extra_js_url error: %s", err)
 
@@ -77,9 +81,8 @@ async def async_setup_frontend(hass: HomeAssistant) -> None:
                 if hasattr(resources, "async_items") and hasattr(resources, "async_create_item"):
                     existing = [
                         item for item in resources.async_items()
-                        if item.get("url", "").startswith(URL_BASE) or item.get("url", "").startswith("/local/weekaqua-card")
+                        if item.get("url", "").startswith(URL_BASE) or item.get("url", "").startswith(f"{LOCAL_URL_BASE}/{CARD_FILENAME}")
                     ]
-                    target_url = f"{card_url}?v={VERSION}"
                     if not existing:
                         await resources.async_create_item({
                             "res_type": "module",
