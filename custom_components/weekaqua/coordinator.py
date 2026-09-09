@@ -134,7 +134,7 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator managing WeekAqua BLE communication and the Unlimited Dynamic Schedule Engine."""
 
     def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any], entry: Any = None) -> None:
-        """Initialize the WeekAqua coordinator."""
+        self.hass: HomeAssistant = hass
         self._entry = entry
         self.mac: str = entry_data[CONF_MAC]
         self.device_name: str = entry_data.get(CONF_NAME, "WeekAqua")
@@ -157,6 +157,14 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.current_uv: float = float(entry_data.get("current_uv", 0.0))
         self.current_v: float = float(entry_data.get("current_v", 0.0))
         self.current_fan: float = float(entry_data.get("current_fan", 50.0))
+
+        # Initialize parent DataUpdateCoordinator early to ensure self.hass is set
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{self.mac}",
+            update_interval=timedelta(seconds=self.schedule_interval),
+        )
 
         if self._is_4ch_rgb_uv():
             if self.current_w > 0 and self.current_uv == 0.0:
@@ -199,13 +207,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.ble_logs: deque[dict[str, Any]] = deque(maxlen=60)
         self._log_seq: int = 0
 
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_{self.mac}",
-            update_interval=timedelta(seconds=self.schedule_interval),
-        )
-
     def _add_log(self, event: str, msg: str, hex_str: str = "", level: str = "info") -> None:
         """Add a structured log event for frontend packet monitoring."""
         self._log_seq += 1
@@ -228,16 +229,15 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def ble_name(self) -> str:
         """Return the raw Bluetooth advertised LocalName (e.g. B3.0-M800pro-18)."""
         mac_clean = self.mac.replace(":", "").upper()
-        service_info = bluetooth.async_last_service_info(self.hass, self.mac, connectable=True)
-        if service_info and service_info.name and service_info.name.replace(":", "").upper() != mac_clean:
-            return service_info.name
-        ble_dev = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
-        if ble_dev and ble_dev.name and ble_dev.name.replace(":", "").upper() != mac_clean:
-            return ble_dev.name
+        if hasattr(self, "hass") and self.hass is not None:
+            service_info = bluetooth.async_last_service_info(self.hass, self.mac, connectable=True)
+            if service_info and service_info.name and service_info.name.replace(":", "").upper() != mac_clean:
+                return service_info.name
+            ble_dev = bluetooth.async_ble_device_from_address(self.hass, self.mac, connectable=True)
+            if ble_dev and ble_dev.name and ble_dev.name.replace(":", "").upper() != mac_clean:
+                return ble_dev.name
         if self.model_code and self.model_code in MODEL_NAMES:
             return f"WeekAqua {MODEL_NAMES[self.model_code]}"
-        if self._is_4ch_rgb_uv():
-            return "WeekAqua M800 Pro (4CH Legacy)"
         return self.device_name or "WeekAqua Light"
 
     @property
@@ -777,7 +777,9 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_schedule_enabled(self, enabled: bool) -> None:
         """Enable or disable dynamic unlimited schedule."""
         self.schedule_enabled = enabled
+        self._manual_disconnected = False
         _LOGGER.info("Dynamic schedule %s for %s", "ENABLED" if enabled else "DISABLED", self.mac)
+
         if enabled and self.schedule_points:
             target = self.calculate_interpolated_spectrum(datetime.now().time())
             self.current_r = target.r
@@ -796,8 +798,28 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 is_4ch_rgb_uv=self._is_4ch_rgb_uv()
             )
             self._last_sent_spectrum = packet
-            if not self._manual_disconnected:
-                await self._send_live_spectrum_with_mode(packet)
+            await self._send_live_spectrum_with_mode(packet)
+            self._add_log(
+                "SCHEDULE_ON",
+                "Dynamic schedule enabled - immediately sent current slot spectrum",
+                packet.hex().upper(),
+                level="success"
+            )
+        else:
+            # When schedule is disabled, immediately transmit current manual spectrum (Live Mode)
+            packet = WeekAquaProtocol.build_live_spectrum_packet(
+                self.current_r, self.current_g, self.current_b, self.current_w,
+                self.current_uv, self.current_v, self.model_code,
+                is_4ch_rgb_uv=self._is_4ch_rgb_uv()
+            )
+            self._last_sent_spectrum = packet
+            await self._send_live_spectrum_with_mode(packet)
+            self._add_log(
+                "SCHEDULE_OFF",
+                "Dynamic schedule disabled - immediately switched to manual spectrum",
+                packet.hex().upper(),
+                level="info"
+            )
         if self._entry:
             try:
                 new_data = {
