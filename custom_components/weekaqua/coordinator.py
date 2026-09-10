@@ -716,9 +716,13 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         v_val = float(active_pt.get("v", 0))
 
         # Night Moonlight retention if active slot has 0 power
-        if self.keep_moonlight and (r_val + g_val + b_val + w_val + uv_val + v_val) == 0:
+        if (r_val + g_val + b_val + w_val + uv_val + v_val) == 0:
+            if self.keep_moonlight:
+                return WeekAquaProtocol.normalize_spectrum_to_max_power(
+                    0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
+                )
             return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.model_code
             )
 
         return WeekAquaProtocol.normalize_spectrum_to_max_power(
@@ -885,18 +889,40 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("Failed to persist state to config entry: %s", err)
 
     def is_in_night_hold(self, target_time: time | None = None) -> bool:
-        """Return True if the given time (or now) falls in the night hold/off interval."""
-        if not self.schedule_points or len(self.schedule_points) < 2:
+        """Return True if the given time (or now) falls in the night hold/off interval (all channels zero)."""
+        if not self.schedule_points:
             return True
-        t = target_time or datetime.now().time()
-        now_sec = t.hour * 3600 + t.minute * 60 + t.second
-        start_h, start_m, start_s = parse_time_str(self.schedule_points[0]["time"])
-        end_h, end_m, end_s = parse_time_str(self.schedule_points[-1]["time"])
-        start_sec = start_h * 3600 + start_m * 60 + start_s
-        end_sec = end_h * 3600 + end_m * 60 + end_s
-        if end_sec <= start_sec:
-            return end_sec <= now_sec < start_sec
-        return now_sec < start_sec or now_sec >= end_sec
+
+        if target_time is None:
+            target_time = datetime.now().time()
+
+        now_sec = target_time.hour * 3600 + target_time.minute * 60 + target_time.second
+        timeline: list[tuple[int, dict[str, Any]]] = []
+        for pt in self.schedule_points:
+            h, m, s = parse_time_str(pt["time"])
+            sec = h * 3600 + m * 60 + s
+            timeline.append((sec, pt))
+
+        timeline.sort(key=lambda x: x[0])
+
+        active_pt = None
+        for sec, pt in timeline:
+            if sec <= now_sec:
+                active_pt = pt
+            else:
+                break
+
+        if active_pt is None:
+            active_pt = timeline[-1][1]
+
+        r_val = float(active_pt.get("r", 0))
+        g_val = float(active_pt.get("g", 0))
+        b_val = float(active_pt.get("b", 0))
+        w_val = float(active_pt.get("w", 0))
+        uv_val = float(active_pt.get("uv", 0))
+        v_val = float(active_pt.get("v", 0))
+
+        return (r_val + g_val + b_val + w_val + uv_val + v_val) == 0
 
     async def async_set_moonlight_enabled(self, enabled: bool) -> None:
         """Enable or disable night moonlight and send packet immediately if in night period."""
@@ -1023,6 +1049,10 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_points = points
         if meta:
             self.schedule_meta = {**self.schedule_meta, **{k: v for k, v in meta.items() if v is not None}}
+            if "keep_moonlight" in meta and meta["keep_moonlight"] is not None:
+                self.keep_moonlight = bool(meta["keep_moonlight"])
+            if "moonlight_brightness" in meta and meta["moonlight_brightness"] is not None:
+                self.moonlight_brightness = max(1.0, min(20.0, float(meta["moonlight_brightness"])))
         self.schedule_enabled = True
 
         self._persist_state()
@@ -1209,12 +1239,3 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         self.async_set_updated_data(self._build_data())
-
-    async def async_set_schedule_enabled(self, enabled: bool) -> None:
-        """Toggle dynamic schedule on or off."""
-        self._manual_disconnected = False
-        self.schedule_enabled = enabled
-        if enabled:
-            await self.async_refresh()
-        else:
-            self.async_set_updated_data(self._build_data())

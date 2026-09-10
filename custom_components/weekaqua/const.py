@@ -65,6 +65,14 @@ MODEL_NAMES = {
 
 # Spectrum Presets: (R, G, B, W, UV, Violet) in percentages (0.0 ~ 100.0) matching C# WeekAquaProtocol.Presets
 PRESETS = {
+    "Custom1": {
+        "name": "Custom 1 / 사용자 프리셋 1",
+        "r": 70.0, "g": 90.0, "b": 50.0, "w": 80.0, "uv": 15.0, "v": 10.0
+    },
+    "Custom2": {
+        "name": "Custom 2 / 사용자 프리셋 2",
+        "r": 80.0, "g": 40.0, "b": 80.0, "w": 80.0, "uv": 20.0, "v": 20.0
+    },
     "GreenGrass": {
         "name": "Green Plant / 수초 (녹색)",
         "r": 75.0, "g": 95.0, "b": 38.0, "w": 75.0, "uv": 10.0, "v": 5.0

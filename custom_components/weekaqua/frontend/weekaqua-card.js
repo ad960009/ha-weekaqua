@@ -9,6 +9,8 @@
  */
 
 const CARD_PRESETS = {
+  Custom1: { r: 70, g: 90, b: 50, w: 80, uv: 15, v: 10 },
+  Custom2: { r: 80, g: 40, b: 80, w: 80, uv: 20, v: 20 },
   GreenGrass: { r: 75, g: 95, b: 38, w: 75, uv: 10, v: 5 },
   RedGrass: { r: 95, g: 30, b: 65, w: 75, uv: 15, v: 10 },
   FishMixed: { r: 70, g: 70, b: 70, w: 95, uv: 5, v: 5 },
@@ -37,6 +39,13 @@ class WeekAquaCard extends HTMLElement {
     this._scheduleEnabled = true;
     this._hasLoadedInitialSchedule = false;
     this._scheduleMeta = null;
+    this._scheduleIntensity = 100;
+    this._instantLiveSend = false;
+    this._hasPendingLiveChanges = false;
+    this._userPresets = {
+      Custom1: { r: 70, g: 90, b: 50, w: 80, uv: 15, v: 10 },
+      Custom2: { r: 80, g: 40, b: 80, w: 80, uv: 20, v: 20 },
+    };
     this._schedulePoints = [
       { time: '18:00', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
       { time: '18:26', r: 23, g: 29, b: 12, w: 23, uv: 3, v: 2 },
@@ -57,7 +66,7 @@ class WeekAquaCard extends HTMLElement {
       { time: '00:48', r: 34, g: 43, b: 17, w: 34, uv: 5, v: 2 },
       { time: '01:12', r: 23, g: 29, b: 12, w: 23, uv: 3, v: 2 },
       { time: '01:36', r: 12, g: 15, b: 6, w: 12, uv: 2, v: 1 },
-      { time: '02:00', r: 0, g: 0, b: 4, w: 0, uv: 0, v: 0 },
+      { time: '02:00', r: 0, g: 0, b: 0, w: 0, uv: 0, v: 0 },
     ];
     this._isUserInteractingSliders = false;
     this._lastUserSliderInteractionTime = 0;
@@ -72,6 +81,7 @@ class WeekAquaCard extends HTMLElement {
     }
     this._config = Object.assign({}, config);
     try {
+      this._loadUserPresets();
       this._restoreFromLocalStorage();
       this._render();
       if (this._hass && this._config && this._config.entity && this.shadowRoot) {
@@ -80,6 +90,41 @@ class WeekAquaCard extends HTMLElement {
     } catch (err) {
       console.error("WeekAquaCard setConfig error:", err);
     }
+  }
+
+  _loadUserPresets() {
+    const storageKey = 'weekaqua_user_presets_' + (this._config?.entity || 'default');
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          this._userPresets = { ...this._userPresets, ...parsed };
+        }
+      }
+    } catch (e) {}
+  }
+
+  _saveUserPreset(key) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const r = parseFloat(root.getElementById('sl-r')?.value || 0);
+    const g = parseFloat(root.getElementById('sl-g')?.value || 0);
+    const b = parseFloat(root.getElementById('sl-b')?.value || 0);
+    const w = parseFloat(root.getElementById('sl-w')?.value || 0);
+    const uv = parseFloat(root.getElementById('sl-uv')?.value || 0);
+    const v = parseFloat(root.getElementById('sl-v')?.value || 0);
+
+    if (!this._userPresets) this._userPresets = {};
+    this._userPresets[key] = { r, g, b, w, uv, v };
+
+    const storageKey = 'weekaqua_user_presets_' + (this._config?.entity || 'default');
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(this._userPresets));
+    } catch (e) {}
+
+    const label = key === 'Custom1' ? 'Custom 1' : 'Custom 2';
+    alert(`✅ 현재 스펙트럼이 ${label}에 저장되었습니다!\n(R:${Math.round(r)}% G:${Math.round(g)}% B:${Math.round(b)}% W/UV:${Math.round(w || uv)}%)`);
   }
 
   set hass(hass) {
@@ -784,8 +829,21 @@ class WeekAquaCard extends HTMLElement {
             <span style="font-size: 11px; font-weight: 700;" id="gauge-txt">0.0%</span>
           </div>
 
+          <!-- Live Spectrum Send Bar & Instant Send Checkbox -->
+          <div style="display: flex; gap: 8px; margin: 10px 0 14px 0; align-items: center;">
+            <button type="button" id="btn-send-live" class="btn-action" style="flex: 1; padding: 10px 14px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #2563EB, #1D4ED8); border: none; border-radius: 6px; color: #FFFFFF; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+              <span>🚀 조명으로 전송 (Apply)</span>
+            </button>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #E4E4E7; cursor: pointer; user-select: none; background: #27272A; padding: 8px 10px; border-radius: 6px; border: 1px solid #3F3F46; white-space: nowrap;">
+              <input type="checkbox" id="chk-live-instant" style="cursor: pointer; accent-color: #3B82F6; width: 15px; height: 15px;">
+              <span>⚡ 바로 전송</span>
+            </label>
+          </div>
+
           <div class="presets-title">🎨 Spectrum Presets (One-Click)</div>
           <div class="preset-grid">
+            <button class="preset-btn" data-p="Custom1" style="background: rgba(99, 102, 241, 0.25); border-color: #6366F1; color: #A5B4FC; font-weight: 700;">⭐ Custom 1</button>
+            <button class="preset-btn" data-p="Custom2" style="background: rgba(168, 85, 247, 0.25); border-color: #A855F7; color: #D8B4FE; font-weight: 700;">⭐ Custom 2</button>
             <button class="preset-btn" data-p="GreenGrass">🌿 Green</button>
             <button class="preset-btn" data-p="RedGrass">🍁 Red Plant</button>
             <button class="preset-btn" data-p="FishMixed">🐠 Mixed</button>
@@ -795,6 +853,11 @@ class WeekAquaCard extends HTMLElement {
             <button class="preset-btn" data-p="DeepBlue">🌊 Deep Blue</button>
             <button class="preset-btn" data-p="Max" style="color: #FBBF24; font-weight: 700;">💡 Max (100%)</button>
             <button class="preset-btn" data-p="Moonlight">🌙 Moonlight</button>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center; background: #27272A; padding: 6px 10px; border-radius: 6px; border: 1px dashed #3F3F46;">
+            <span style="font-size: 11px; color: #A1A1AA; font-weight: 600;">💾 현재값 저장:</span>
+            <button type="button" id="btn-save-custom1" style="flex: 1; background: #1E1B4B; border: 1px solid #6366F1; color: #C7D2FE; font-size: 11px; font-weight: 600; padding: 5px 6px; border-radius: 4px; cursor: pointer;">Save as Custom 1</button>
+            <button type="button" id="btn-save-custom2" style="flex: 1; background: #2E1065; border: 1px solid #A855F7; color: #E9D5FF; font-size: 11px; font-weight: 600; padding: 5px 6px; border-radius: 4px; cursor: pointer;">Save as Custom 2</button>
           </div>
         </div>
 
@@ -834,7 +897,9 @@ class WeekAquaCard extends HTMLElement {
 
             <div style="margin-bottom: 14px;">
               <label style="font-size: 11px; color: #A1A1AA; font-weight: 600; display: block; margin-bottom: 6px;">🎨 Daytime Target Spectrum (주간 최고 목표 스펙트럼)</label>
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px;" id="timer-presets-grid">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px;" id="timer-presets-grid">
+                <button class="preset-btn" data-tp="Custom1" style="background: rgba(99, 102, 241, 0.2); border-color: #6366F1; color: #A5B4FC; font-weight: 700;">⭐ Custom 1</button>
+                <button class="preset-btn" data-tp="Custom2" style="background: rgba(168, 85, 247, 0.2); border-color: #A855F7; color: #D8B4FE; font-weight: 700;">⭐ Custom 2</button>
                 <button class="preset-btn" data-tp="FishMixed" style="border-color: #3B82F6; background: #1E3A8A; color: #FFF;">🐠 Mixed</button>
                 <button class="preset-btn" data-tp="GreenGrass">🌿 Green</button>
                 <button class="preset-btn" data-tp="RedGrass">🍁 Red</button>
@@ -885,6 +950,8 @@ class WeekAquaCard extends HTMLElement {
               <div class="config-item">
                 <label>🎨 Peak Preset (피크 프리셋)</label>
                 <select id="sched-preset-select">
+                  <option value="Custom1">⭐ Custom 1</option>
+                  <option value="Custom2">⭐ Custom 2</option>
                   <option value="GreenGrass" selected>🌿 Green Plant</option>
                   <option value="RedGrass">🍁 Red Plant</option>
                   <option value="FishMixed">🐠 Mixed</option>
@@ -896,6 +963,19 @@ class WeekAquaCard extends HTMLElement {
                   <option value="AlgaeMax">🌿 Algae Max</option>
                   <option value="Moonlight">🌙 Moonlight</option>
                 </select>
+              </div>
+            </div>
+            <div class="sched-config-grid" style="margin-top: 8px;">
+              <div class="config-item" style="grid-column: span 2;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <label style="margin-bottom: 0;">⚡ Peak Output (전체 출력 제어: 0~100%)</label>
+                  <span id="sched-intensity-val" style="font-size: 12px; font-weight: 700; color: #F59E0B;">${this._scheduleIntensity !== undefined ? this._scheduleIntensity : 100}%</span>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="range" id="sched-intensity-slider" min="0" max="100" value="${this._scheduleIntensity !== undefined ? this._scheduleIntensity : 100}" style="flex: 1; accent-color: #F59E0B; height: 6px; cursor: pointer;">
+                  <input type="number" id="sched-intensity-num" min="0" max="100" value="${this._scheduleIntensity !== undefined ? this._scheduleIntensity : 100}" style="width: 55px; text-align: center; background: #18181B; border: 1px solid #3F3F46; color: #FFF; border-radius: 4px; padding: 3px; font-size: 12px;">
+                  <span style="font-size: 12px; color: #A1A1AA;">%</span>
+                </div>
               </div>
             </div>
             <div class="moonlight-toggle-wrap">
@@ -976,7 +1056,19 @@ class WeekAquaCard extends HTMLElement {
 
   _restoreFromLocalStorage() {
     const key = 'weekaqua_sched_' + (this._config?.entity || 'default');
+    const instantKey = 'weekaqua_instant_live_' + (this._config?.entity || 'default');
     try {
+      const savedInstant = localStorage.getItem(instantKey);
+      if (savedInstant !== null) {
+        this._instantLiveSend = (savedInstant === 'true');
+      } else {
+        this._instantLiveSend = false; // default unchecked
+      }
+      const chkInstant = this.shadowRoot?.getElementById('chk-live-instant');
+      if (chkInstant) {
+        chkInstant.checked = this._instantLiveSend;
+      }
+
       const raw = localStorage.getItem(key);
       if (raw) {
         const data = JSON.parse(raw);
@@ -988,6 +1080,9 @@ class WeekAquaCard extends HTMLElement {
         }
         if (data.keep_moonlight !== undefined) {
           this._keepMoonlight = Boolean(data.keep_moonlight);
+        }
+        if (data.intensity !== undefined) {
+          this._scheduleIntensity = Math.max(0, Math.min(100, parseInt(data.intensity, 10) || 100));
         }
         if (data) {
           this._scheduleMeta = data;
@@ -1021,6 +1116,15 @@ class WeekAquaCard extends HTMLElement {
     if (meta.preset) {
       const presetEl = root.getElementById('sched-preset-select');
       if (presetEl && activeEl !== presetEl) presetEl.value = meta.preset;
+    }
+    if (meta.intensity !== undefined) {
+      this._scheduleIntensity = Math.max(0, Math.min(100, parseInt(meta.intensity, 10) || 100));
+      const intensitySlider = root.getElementById('sched-intensity-slider');
+      const intensityNum = root.getElementById('sched-intensity-num');
+      const intensityVal = root.getElementById('sched-intensity-val');
+      if (intensitySlider && activeEl !== intensitySlider) intensitySlider.value = String(this._scheduleIntensity);
+      if (intensityNum && activeEl !== intensityNum) intensityNum.value = String(this._scheduleIntensity);
+      if (intensityVal) intensityVal.textContent = `${this._scheduleIntensity}%`;
     }
     if (meta.moonlight_brightness !== undefined) {
       const parsed = parseFloat(meta.moonlight_brightness);
@@ -1200,6 +1304,46 @@ class WeekAquaCard extends HTMLElement {
       });
     }
 
+    // Live Spectrum Send Button & Instant Send Checkbox
+    const btnSendLive = root.getElementById('btn-send-live');
+    const chkLiveInstant = root.getElementById('chk-live-instant');
+
+    if (chkLiveInstant) {
+      chkLiveInstant.checked = this._instantLiveSend;
+      chkLiveInstant.addEventListener('change', (e) => {
+        this._instantLiveSend = Boolean(e.target.checked);
+        try {
+          const instantKey = 'weekaqua_instant_live_' + (this._config?.entity || 'default');
+          localStorage.setItem(instantKey, String(this._instantLiveSend));
+        } catch (err) {}
+        if (this._instantLiveSend && this._hasPendingLiveChanges) {
+          this._hasPendingLiveChanges = false;
+          this._sendLiveSpectrum();
+          this._setConnectionStatus(true);
+        }
+        this._updateLiveSendButtonUI();
+      });
+    }
+
+    if (btnSendLive) {
+      btnSendLive.addEventListener('click', () => {
+        this._hasPendingLiveChanges = false;
+        this._updateModeUI(1);
+        this._sendLiveSpectrum();
+        this._setConnectionStatus(true);
+
+        const origHtml = btnSendLive.innerHTML;
+        btnSendLive.innerHTML = '<span>✅ 전송 완료!</span>';
+        btnSendLive.style.background = 'linear-gradient(135deg, #059669, #047857)';
+        setTimeout(() => {
+          if (btnSendLive) {
+            btnSendLive.innerHTML = origHtml;
+            this._updateLiveSendButtonUI();
+          }
+        }, 1200);
+      });
+    }
+
     // Sliders with user interaction tracking
     ['r', 'g', 'b', 'w', 'uv', 'v'].forEach((ch) => {
       const sl = root.getElementById(`sl-${ch}`);
@@ -1237,11 +1381,21 @@ class WeekAquaCard extends HTMLElement {
           onSliderStart();
           txt.textContent = `${sl.value}%`;
           this._updateGauge();
+          if (!this._instantLiveSend) {
+            this._hasPendingLiveChanges = true;
+            this._updateLiveSendButtonUI();
+          }
         });
         sl.addEventListener('change', () => {
           onSliderEnd();
-          this._sendLiveSpectrum();
-          this._setConnectionStatus(true);
+          if (this._instantLiveSend) {
+            this._hasPendingLiveChanges = false;
+            this._sendLiveSpectrum();
+            this._setConnectionStatus(true);
+          } else {
+            this._hasPendingLiveChanges = true;
+            this._updateLiveSendButtonUI();
+          }
         });
       }
     });
@@ -1255,6 +1409,16 @@ class WeekAquaCard extends HTMLElement {
       });
     });
 
+    // User Preset Save Buttons
+    const btnSaveC1 = root.getElementById('btn-save-custom1');
+    if (btnSaveC1) {
+      btnSaveC1.addEventListener('click', () => this._saveUserPreset('Custom1'));
+    }
+    const btnSaveC2 = root.getElementById('btn-save-custom2');
+    if (btnSaveC2) {
+      btnSaveC2.addEventListener('click', () => this._saveUserPreset('Custom2'));
+    }
+
     // Schedule: Slots input listener
     const slotsInput = root.getElementById('sched-slots-input');
     if (slotsInput) {
@@ -1263,19 +1427,40 @@ class WeekAquaCard extends HTMLElement {
       });
     }
 
+    // Schedule: Intensity Slider and Input Sync
+    const intensitySlider = root.getElementById('sched-intensity-slider');
+    const intensityNum = root.getElementById('sched-intensity-num');
+    const intensityVal = root.getElementById('sched-intensity-val');
+    if (intensitySlider && intensityNum) {
+      const updateIntensity = (val) => {
+        const clamped = Math.max(0, Math.min(100, Math.round(Number(val) || 0)));
+        intensitySlider.value = String(clamped);
+        intensityNum.value = String(clamped);
+        if (intensityVal) intensityVal.textContent = `${clamped}%`;
+        this._scheduleIntensity = clamped;
+      };
+      intensitySlider.addEventListener('input', (e) => updateIntensity(e.target.value));
+      intensityNum.addEventListener('input', (e) => updateIntensity(e.target.value));
+    }
+
     // Schedule: Moonlight checkbox toggle
     const chkMoonlight = root.getElementById('sched-keep-moonlight');
     if (chkMoonlight) {
       chkMoonlight.addEventListener('change', () => {
         this._keepMoonlight = chkMoonlight.checked;
         this._updateMoonlightUI();
-        const brightness = this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4;
-        if (this._schedulePoints.length > 0) {
-          const lastPt = this._schedulePoints[this._schedulePoints.length - 1];
-          if (lastPt.r === 0 && lastPt.g === 0 && lastPt.w === 0 && (lastPt.b === 0 || lastPt.b === brightness || lastPt.b === 4)) {
-            lastPt.b = this._keepMoonlight ? brightness : 0;
-            this._renderScheduleTable();
-            this._renderCurve();
+        this._renderCurve();
+
+        // Also notify HA switch entity directly for immediate responsiveness
+        if (this._hass) {
+          const entityKey = (this._config.entity || '').replace(/^light\./, '');
+          for (const eId of Object.keys(this._hass.states || {})) {
+            if (eId.startsWith('switch.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
+              this._hass.callService('switch', this._keepMoonlight ? 'turn_on' : 'turn_off', {
+                entity_id: eId,
+              });
+              break;
+            }
           }
         }
       });
@@ -1511,7 +1696,7 @@ class WeekAquaCard extends HTMLElement {
   }
 
   _getPresetSpectrum(presetName) {
-    const p = CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
+    let p = (this._userPresets && this._userPresets[presetName]) || CARD_PRESETS[presetName] || { r: 50, g: 90, b: 60, w: 80, uv: 40, v: 30 };
     const attr = (this._hass && this._config.entity && this._hass.states[this._config.entity]?.attributes) || {};
     const bleName = (attr.ble_name || attr.model_name || attr.device_name || '').toUpperCase();
     const is4ChRgbUv = attr.is_4ch_rgb_uv !== undefined
@@ -1547,12 +1732,49 @@ class WeekAquaCard extends HTMLElement {
     this._updateModeUI(1);
     const spec = this._getPresetSpectrum(presetName);
     this._setSliderValues(spec.r, spec.g, spec.b, spec.w, spec.uv, spec.v, true);
-    if (this._hass) {
-      this._hass.callService('weekaqua', 'apply_preset', {
-        device_id: this._config.device_id || '',
-        entity_id: this._config.entity || '',
-        preset: presetName,
-      });
+    if (this._instantLiveSend) {
+      this._hasPendingLiveChanges = false;
+      this._updateLiveSendButtonUI();
+      if (this._hass) {
+        if (presetName === 'Custom1' || presetName === 'Custom2') {
+          this._hass.callService('weekaqua', 'set_spectrum', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+            red: spec.r,
+            green: spec.g,
+            blue: spec.b,
+            white: spec.w,
+            uv: spec.uv || 0.0,
+            violet: spec.v || 0.0,
+            disable_schedule: true,
+          });
+        } else {
+          this._hass.callService('weekaqua', 'apply_preset', {
+            device_id: this._config.device_id || '',
+            entity_id: this._config.entity || '',
+            preset: presetName,
+          });
+        }
+      }
+    } else {
+      this._hasPendingLiveChanges = true;
+      this._updateLiveSendButtonUI();
+    }
+  }
+
+  _updateLiveSendButtonUI() {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const btnSend = root.getElementById('btn-send-live');
+    if (!btnSend) return;
+    if (this._hasPendingLiveChanges) {
+      btnSend.style.background = 'linear-gradient(135deg, #F59E0B, #D97706)';
+      btnSend.innerHTML = '<span>🚀 변경값 조명으로 전송 (Apply)</span>';
+      btnSend.style.boxShadow = '0 0 12px rgba(245, 158, 11, 0.4)';
+    } else {
+      btnSend.style.background = 'linear-gradient(135deg, #2563EB, #1D4ED8)';
+      btnSend.innerHTML = '<span>🚀 조명으로 전송 (Apply)</span>';
+      btnSend.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
     }
   }
 
@@ -1562,8 +1784,8 @@ class WeekAquaCard extends HTMLElement {
 
     if (!force) {
       const isInteracting = this._isUserInteractingSliders || (Date.now() - (this._lastUserSliderInteractionTime || 0) < 1500);
-      if (isInteracting) {
-        return; // Preserve user's active drag/edit on sliders
+      if (isInteracting || this._hasPendingLiveChanges) {
+        return; // Preserve user's active drag/edit on sliders or unapplied changes
       }
     }
 
@@ -1594,6 +1816,12 @@ class WeekAquaCard extends HTMLElement {
     const baseSpec = this._getPresetSpectrum(presetName);
     const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
     this._keepMoonlight = keepMoonlight;
+
+    const intensityNum = root.getElementById('sched-intensity-num');
+    const intensitySlider = root.getElementById('sched-intensity-slider');
+    const intensity = intensityNum ? Math.max(0, Math.min(100, parseInt(intensityNum.value, 10) || 100)) : (intensitySlider ? parseInt(intensitySlider.value, 10) : (this._scheduleIntensity || 100));
+    this._scheduleIntensity = intensity;
+    const scale = intensity / 100.0;
 
     const parseMin = (s) => {
       if (!s) return 0;
@@ -1632,17 +1860,17 @@ class WeekAquaCard extends HTMLElement {
       // Day 1 Slots (Pre-midnight: 18:00 up to before 24:00)
       for (let i = 0; i < slotsDay1; i++) {
         const t = startMin + i * stepDay1;
-        // Pure mathematical sinusoidal natural bell curve: sin(((i+1)/(daySlots+1)) * PI)
+        // Pure mathematical sinusoidal natural bell curve scaled by intensity
         const factor = Math.sin(((slotIdx + 1) / (daySlots + 1)) * Math.PI);
         slotIdx++;
         newPoints.push({
           time: formatMin(t),
-          r: Math.round(baseSpec.r * factor),
-          g: Math.round(baseSpec.g * factor),
-          b: Math.round(baseSpec.b * factor),
-          w: Math.round(baseSpec.w * factor),
-          uv: Math.round((baseSpec.uv || 0) * factor),
-          v: Math.round((baseSpec.v || 0) * factor),
+          r: Math.round(baseSpec.r * factor * scale),
+          g: Math.round(baseSpec.g * factor * scale),
+          b: Math.round(baseSpec.b * factor * scale),
+          w: Math.round(baseSpec.w * factor * scale),
+          uv: Math.round((baseSpec.uv || 0) * factor * scale),
+          v: Math.round((baseSpec.v || 0) * factor * scale),
         });
       }
 
@@ -1653,22 +1881,21 @@ class WeekAquaCard extends HTMLElement {
         slotIdx++;
         newPoints.push({
           time: formatMin(t),
-          r: Math.round(baseSpec.r * factor),
-          g: Math.round(baseSpec.g * factor),
-          b: Math.round(baseSpec.b * factor),
-          w: Math.round(baseSpec.w * factor),
-          uv: Math.round((baseSpec.uv || 0) * factor),
-          v: Math.round((baseSpec.v || 0) * factor),
+          r: Math.round(baseSpec.r * factor * scale),
+          g: Math.round(baseSpec.g * factor * scale),
+          b: Math.round(baseSpec.b * factor * scale),
+          w: Math.round(baseSpec.w * factor * scale),
+          uv: Math.round((baseSpec.uv || 0) * factor * scale),
+          v: Math.round((baseSpec.v || 0) * factor * scale),
         });
       }
 
-      // Night Slot (At sunset endMin, e.g. 02:00)
-      const mlBrightness = this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4;
+      // Night Slot (At sunset endMin, e.g. 02:00) - Always off (0) in schedule
       newPoints.push({
         time: formatMin(endMin),
         r: 0,
         g: 0,
-        b: keepMoonlight ? mlBrightness : 0,
+        b: 0,
         w: 0,
         uv: 0,
         v: 0,
@@ -1683,22 +1910,21 @@ class WeekAquaCard extends HTMLElement {
         const factor = Math.sin(((i + 1) / (daySlots + 1)) * Math.PI);
         newPoints.push({
           time: formatMin(t),
-          r: Math.round(baseSpec.r * factor),
-          g: Math.round(baseSpec.g * factor),
-          b: Math.round(baseSpec.b * factor),
-          w: Math.round(baseSpec.w * factor),
-          uv: Math.round((baseSpec.uv || 0) * factor),
-          v: Math.round((baseSpec.v || 0) * factor),
+          r: Math.round(baseSpec.r * factor * scale),
+          g: Math.round(baseSpec.g * factor * scale),
+          b: Math.round(baseSpec.b * factor * scale),
+          w: Math.round(baseSpec.w * factor * scale),
+          uv: Math.round((baseSpec.uv || 0) * factor * scale),
+          v: Math.round((baseSpec.v || 0) * factor * scale),
         });
       }
 
-      // Night Slot (At sunset endMin)
-      const mlBrightness = this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4;
+      // Night Slot (At sunset endMin) - Always off (0) in schedule
       newPoints.push({
         time: formatMin(endMin),
         r: 0,
         g: 0,
-        b: keepMoonlight ? mlBrightness : 0,
+        b: 0,
         w: 0,
         uv: 0,
         v: 0,
@@ -1855,7 +2081,11 @@ class WeekAquaCard extends HTMLElement {
     }
 
     if (inHoldInterval) {
-      return endPower;
+      if (this._keepMoonlight) {
+        const mlBrightness = (Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4;
+        return this._calculatePower(0, 0, mlBrightness, 0, 0, 0);
+      }
+      return 0;
     }
 
     // Inside active schedule interval -> Lerp along elapsed timeline from startMin
@@ -1915,6 +2145,10 @@ class WeekAquaCard extends HTMLElement {
     const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
     const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
+    const intensityNum = root.getElementById('sched-intensity-num');
+    const intensitySlider = root.getElementById('sched-intensity-slider');
+    const intensity = intensityNum ? Math.max(0, Math.min(100, parseInt(intensityNum.value, 10) || 100)) : (intensitySlider ? parseInt(intensitySlider.value, 10) : (this._scheduleIntensity || 100));
+    this._scheduleIntensity = intensity;
 
     const schedMeta = {
       points: this._schedulePoints,
@@ -1922,6 +2156,7 @@ class WeekAquaCard extends HTMLElement {
       end_time: endStr,
       slots: totalSlots,
       preset: presetName,
+      intensity: intensity,
       keep_moonlight: keepMoonlight,
       moonlight_brightness: this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4,
     };
@@ -1944,6 +2179,7 @@ class WeekAquaCard extends HTMLElement {
         end_time: endStr,
         slots: totalSlots,
         preset: presetName,
+        intensity: intensity,
         keep_moonlight: keepMoonlight,
       });
       alert('✅ WeekAqua Natural Schedule saved and synced to Home Assistant!');
