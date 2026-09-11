@@ -21,7 +21,7 @@ Home Assistant(HA) 환경에서 **WeekAqua 수조 조명**을 제어할 수 있�
 | 1. 라이브 수동 제어 모드 (Live) | 2. 간편 일출/일몰 모드 (Sunrise & Sunset) | 3. 무제한 동적 스케줄러 (Custom Schedule) |
 | :---: | :---: | :---: |
 | <img src="images/card_live_mode.jpg" width="280" alt="Live Manual Mode" /> | <img src="images/card_sunrise_sunset.jpg" width="280" alt="Sunrise & Sunset Mode" /> | <img src="images/card_custom_schedule.jpg" width="280" alt="Custom Dynamic Schedule" /> |
-| **RGBW/UV 채널 슬라이더 & 원클릭 프리셋**<br/>• 실시간 부하율(%) 게이지 바<br/>• 500ms 큐 패킷 중복 제거 (Deduplication)<br/>• 즉각적인 색상 변경 및 단일 블루투스 토글 | **간편 일출/일몰 램프 타이머**<br/>• 점등/소등 시각 및 램프업/다운(0~2.5h) 설정<br/>• 주간 최고 목표 스펙트럼 선택<br/>• 하드웨어 타이머 패킷(`FEF9`) 원클릭 전송 | **24시간 인터랙티브 SVG 타임라인 차트**<br/>• 수학적 자연 곡선 자동 분할 (Auto Distribute)<br/>• 자정(24:00) 무암전 연속 점등 & 넘김 처리<br/>• 심야 은은한 달빛(Moonlight 2%) 밤샘 유지 |
+| **RGBW/UV 채널 슬라이더 & 원클릭 프리셋**<br/>• 실시간 부하율(%) 게이지 바<br/>• 500ms 큐 패킷 중복 제거 (Deduplication)<br/>• 즉각적인 색상 변경 및 단일 블루투스 토글 | **간편 일출/일몰 램프 타이머**<br/>• 점등/소등 시각 및 램프업/다운(0~2.5h) 설정<br/>• 주간 최고 목표 스펙트럼 선택<br/>• 하드웨어 타이머 패킷(`FEF9`) 원클릭 전송 | **24시간 인터랙티브 SVG 타임라인 차트**<br/>• 수학적 자연 곡선 자동 분할 (Auto Distribute)<br/>• 자정(24:00) 무암전 연속 점등 & 넘김 처리<br/>• 심야 은은한 달빛(Moonlight 4%) 스케줄 표 자동 반영 |
 
 </div>
 

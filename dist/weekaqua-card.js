@@ -27,6 +27,14 @@ const CARD_PRESETS = {
   Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
 };
 
+const CARD_VERSION = '1.3.17';
+
+console.info(
+  `%c WEEKAQUA-CARD %c v${CARD_VERSION} `,
+  'color: white; background: #2563EB; font-weight: 700; border-radius: 3px 0 0 3px;',
+  'color: #93C5FD; background: #1E293B; font-weight: 700; border-radius: 0 3px 3px 0;'
+);
+
 class WeekAquaCard extends HTMLElement {
   constructor() {
     super();
@@ -222,6 +230,16 @@ class WeekAquaCard extends HTMLElement {
           display: flex;
           align-items: center;
           gap: 6px;
+        }
+        .version-badge {
+          font-size: 10px;
+          font-weight: 600;
+          color: #94A3B8;
+          background: rgba(148, 163, 184, 0.15);
+          border: 1px solid rgba(148, 163, 184, 0.25);
+          padding: 1px 5px;
+          border-radius: 4px;
+          letter-spacing: 0.3px;
         }
         .conn-bar {
           display: flex;
@@ -749,7 +767,9 @@ class WeekAquaCard extends HTMLElement {
       <div class="card">
         <div class="header">
           <div class="title">
-            <span>🐠</span> <span id="card-title-text">${(this._config && this._config.title) ? this._config.title : 'WeekAqua Light'}</span>
+            <span>🐠</span>
+            <span id="card-title-text">${(this._config && this._config.title) ? this._config.title : 'WeekAqua Light'}</span>
+            <span class="version-badge">v${CARD_VERSION}</span>
           </div>
           <div class="tabs">
             <button class="tab-btn active" id="tab-live">Live</button>
