@@ -34,6 +34,7 @@ class WeekAquaCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._activeTab = 'live'; // 'live' or 'schedule'
+    this._keepMoonlight = false;
     this._scheduleEnabled = true;
     this._hasLoadedInitialSchedule = false;
     this._scheduleMeta = null;
@@ -530,6 +531,42 @@ class WeekAquaCard extends HTMLElement {
           border-radius: 6px;
           font-size: 12px;
           outline: none;
+        }
+        .moonlight-toggle-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #18181B;
+          border: 1px solid #3F3F46;
+          border-radius: 6px;
+          padding: 7px 10px;
+          margin-bottom: 10px;
+        }
+        .moonlight-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #93C5FD;
+          cursor: pointer;
+          user-select: none;
+        }
+        .moonlight-label input[type="checkbox"] {
+          cursor: pointer;
+          accent-color: #3B82F6;
+          width: 15px;
+          height: 15px;
+          margin: 0;
+        }
+        .moonlight-badge {
+          font-size: 10px;
+          color: #60A5FA;
+          background: rgba(59, 130, 246, 0.15);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
         .btn-auto-distribute {
           background: linear-gradient(135deg, #2563EB, #7C3AED);
           color: #FFF;
@@ -940,6 +977,13 @@ class WeekAquaCard extends HTMLElement {
                 </div>
               </div>
             </div>
+            <div class="moonlight-toggle-wrap">
+              <label class="moonlight-label" for="sched-keep-moonlight">
+                <input type="checkbox" id="sched-keep-moonlight" ${this._keepMoonlight ? 'checked' : ''}>
+                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 Blue 4% 유지)</span>
+              </label>
+              <span class="moonlight-badge" id="moonlight-status-badge">${this._keepMoonlight ? 'Blue 4%' : 'Off (0%)'}</span>
+            </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
               ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
             </button>
@@ -1030,6 +1074,9 @@ class WeekAquaCard extends HTMLElement {
         if (data.points && Array.isArray(data.points) && data.points.length > 0) {
           this._schedulePoints = data.points;
         }
+        if (data.keep_moonlight !== undefined) {
+          this._keepMoonlight = Boolean(data.keep_moonlight);
+        }
         if (data.intensity !== undefined) {
           this._scheduleIntensity = Math.max(0, Math.min(100, parseInt(data.intensity, 10) || 100));
         }
@@ -1074,6 +1121,16 @@ class WeekAquaCard extends HTMLElement {
       if (intensitySlider && activeEl !== intensitySlider) intensitySlider.value = String(this._scheduleIntensity);
       if (intensityNum && activeEl !== intensityNum) intensityNum.value = String(this._scheduleIntensity);
       if (intensityVal) intensityVal.textContent = `${this._scheduleIntensity}%`;
+    }
+    if (meta.keep_moonlight !== undefined) {
+      this._keepMoonlight = Boolean(meta.keep_moonlight);
+      const chk = root.getElementById('sched-keep-moonlight');
+      const badge = root.getElementById('moonlight-status-badge');
+      if (chk) chk.checked = this._keepMoonlight;
+      if (badge) {
+        badge.textContent = this._keepMoonlight ? 'Blue 4%' : 'Off (0%)';
+        badge.style.color = this._keepMoonlight ? '#60A5FA' : '#94A3B8';
+      }
     }
   }
 
@@ -1360,6 +1417,19 @@ class WeekAquaCard extends HTMLElement {
       };
       intensitySlider.addEventListener('input', (e) => updateIntensity(e.target.value));
       intensityNum.addEventListener('input', (e) => updateIntensity(e.target.value));
+    }
+
+    // Schedule: Moonlight checkbox toggle (updates local state & badge only, no HA entity needed)
+    const chkMoonlight = root.getElementById('sched-keep-moonlight');
+    if (chkMoonlight) {
+      chkMoonlight.addEventListener('change', () => {
+        this._keepMoonlight = chkMoonlight.checked;
+        const badge = root.getElementById('moonlight-status-badge');
+        if (badge) {
+          badge.textContent = this._keepMoonlight ? 'Blue 4%' : 'Off (0%)';
+          badge.style.color = this._keepMoonlight ? '#60A5FA' : '#94A3B8';
+        }
+      });
     }
 
     // Schedule: Auto Distribute
@@ -1703,12 +1773,15 @@ class WeekAquaCard extends HTMLElement {
     const endInput = root.getElementById('sched-end-time');
     const slotsInput = root.getElementById('sched-slots-input');
     const presetSelect = root.getElementById('sched-preset-select');
+    const chkMoonlight = root.getElementById('sched-keep-moonlight');
 
     const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
     const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
     const baseSpec = this._getPresetSpectrum(presetName);
+    const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
+    this._keepMoonlight = keepMoonlight;
 
     const intensityNum = root.getElementById('sched-intensity-num');
     const intensitySlider = root.getElementById('sched-intensity-slider');
@@ -1783,12 +1856,12 @@ class WeekAquaCard extends HTMLElement {
         });
       }
 
-      // Night Slot (At sunset endMin, e.g. 02:00) - Always off (0) in schedule
+      // Night Slot (At sunset endMin, e.g. 02:00)
       newPoints.push({
         time: formatMin(endMin),
         r: 0,
         g: 0,
-        b: 0,
+        b: keepMoonlight ? 4 : 0,
         w: 0,
         uv: 0,
         v: 0,
@@ -1812,12 +1885,12 @@ class WeekAquaCard extends HTMLElement {
         });
       }
 
-      // Night Slot (At sunset endMin) - Always off (0) in schedule
+      // Night Slot (At sunset endMin)
       newPoints.push({
         time: formatMin(endMin),
         r: 0,
         g: 0,
-        b: 0,
+        b: keepMoonlight ? 4 : 0,
         w: 0,
         uv: 0,
         v: 0,
@@ -1974,7 +2047,7 @@ class WeekAquaCard extends HTMLElement {
     }
 
     if (inHoldInterval) {
-      return 0;
+      return endPower;
     }
 
     // Inside active schedule interval -> Lerp along elapsed timeline from startMin
@@ -2044,6 +2117,7 @@ class WeekAquaCard extends HTMLElement {
       slots: totalSlots,
       preset: presetName,
       intensity: intensity,
+      keep_moonlight: this._keepMoonlight,
     };
     this._scheduleMeta = schedMeta;
 
