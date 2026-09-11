@@ -27,7 +27,7 @@ const CARD_PRESETS = {
   Max: { r: 100, g: 100, b: 100, w: 100, uv: 100, v: 100 },
 };
 
-const CARD_VERSION = '1.3.17';
+const CARD_VERSION = '1.3.18';
 
 console.info(
   `%c WEEKAQUA-CARD %c v${CARD_VERSION} `,
@@ -2477,8 +2477,41 @@ if (!customElements.get('weekaqua-card')) {
   customElements.define('weekaqua-card', WeekAquaCard);
 }
 
+// Lovelace rebuild triggers: bubbles + composed true to pierce shadow DOM boundaries
+const triggerRebuild = () => {
+  const rebuildEvent = () => new CustomEvent('ll-rebuild', {
+    bubbles: true,
+    cancelable: false,
+    composed: true,
+  });
+
+  window.dispatchEvent(rebuildEvent());
+  document.dispatchEvent(rebuildEvent());
+
+  try {
+    const walk = (root) => {
+      if (!root) return;
+      if (root.querySelectorAll) {
+        root.querySelectorAll('hui-error-card').forEach((el) => {
+          el.dispatchEvent(rebuildEvent());
+        });
+      }
+      const children = root.querySelectorAll ? root.querySelectorAll('*') : [];
+      for (const child of children) {
+        if (child.shadowRoot) walk(child.shadowRoot);
+      }
+    };
+    walk(document);
+  } catch (e) {}
+};
+
+triggerRebuild();
+setTimeout(triggerRebuild, 100);
+setTimeout(triggerRebuild, 400);
+setTimeout(triggerRebuild, 1000);
+
 window.customCards = window.customCards || [];
-if (!window.customCards.some((c) => c.type === 'weekaqua-card')) {
+if (!window.customCards.some((c) => c.type === 'weekaqua-card' || c.type === 'custom:weekaqua-card')) {
   window.customCards.push({
     type: 'weekaqua-card',
     name: 'WeekAqua Aquarium Light Card',

@@ -14,7 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 URL_BASE = "/weekaqua_static"
 LOCAL_URL_BASE = "/local"
 CARD_FILENAME = "weekaqua-card.js"
-VERSION = "1.3.17"
+VERSION = "1.3.18"
 
 
 def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:
@@ -31,6 +31,13 @@ def _prepare_card_files(current_dir: str, www_dir: str) -> str | None:
             os.makedirs(www_dir, exist_ok=True)
         dest_js = os.path.join(www_dir, CARD_FILENAME)
         shutil.copy2(source_js, dest_js)
+        # Remove any stale .gz compressed files to avoid webservers serving outdated cached gzip assets
+        for stale_gz in [dest_js + ".gz", source_js + ".gz"]:
+            if os.path.exists(stale_gz):
+                try:
+                    os.remove(stale_gz)
+                except Exception:
+                    pass
     except Exception as err:
         _LOGGER.debug("Could not copy card to www folder: %s", err)
 
