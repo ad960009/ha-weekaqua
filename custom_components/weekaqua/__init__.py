@@ -84,7 +84,6 @@ SCHEMA_SET_SCHEDULE = vol.Schema({
     vol.Optional("end_time"): cv.string,
     vol.Optional("slots"): vol.Coerce(int),
     vol.Optional("preset"): cv.string,
-    vol.Optional("keep_moonlight"): cv.boolean,
     vol.Optional("intensity"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
 })
 
@@ -180,7 +179,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "end_time": call.data.get("end_time"),
             "slots": call.data.get("slots"),
             "preset": call.data.get("preset"),
-            "keep_moonlight": call.data.get("keep_moonlight"),
             "intensity": call.data.get("intensity"),
         }
         for coord in _get_target_coordinators(hass, call):

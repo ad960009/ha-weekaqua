@@ -31,7 +31,6 @@ from .const import (
     CONF_MAC,
     CONF_NAME,
     CONF_MODEL_CODE,
-    CONF_KEEP_MOONLIGHT,
     CONF_SCHEDULE,
     CONF_SCHEDULE_INTERVAL,
     DEFAULT_SCHEDULE_INTERVAL,
@@ -139,8 +138,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.mac: str = entry_data[CONF_MAC]
         self.device_name: str = entry_data.get(CONF_NAME, "WeekAqua")
         self.model_code: str = entry_data.get(CONF_MODEL_CODE, "")
-        self.keep_moonlight: bool = entry_data.get(CONF_KEEP_MOONLIGHT, True)
-        self.moonlight_brightness: float = float(entry_data.get("moonlight_brightness", 4.0))
         self.schedule_interval: int = entry_data.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL)
 
         # Dynamic Unlimited Schedule Waypoints & Metadata (Persisted across restarts)
@@ -714,17 +711,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         w_val = float(active_pt.get("w", 0))
         uv_val = float(active_pt.get("uv", 0))
         v_val = float(active_pt.get("v", 0))
-
-        # Night Moonlight retention if active slot has 0 power
-        if (r_val + g_val + b_val + w_val + uv_val + v_val) == 0:
-            if self.keep_moonlight:
-                return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                    0.0, 0.0, float(self.moonlight_brightness), 0.0, 0.0, 0.0, self.model_code
-                )
-            return WeekAquaProtocol.normalize_spectrum_to_max_power(
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, self.model_code
-            )
-
         return WeekAquaProtocol.normalize_spectrum_to_max_power(
             r_val, g_val, b_val, w_val, uv_val, v_val, self.model_code
         )
@@ -856,8 +842,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule_enabled": self.schedule_enabled,
             "schedule_points": self.schedule_points,
             "schedule_meta": self.schedule_meta,
-            "keep_moonlight": self.keep_moonlight,
-            "moonlight_brightness": self.moonlight_brightness,
             "current_mode": self._current_mode,
             "mode_name": "Schedule (Mode 2)" if self._current_mode == 2 else "Live (Mode 1)",
             "ble_logs": list(self.ble_logs),
@@ -871,8 +855,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 new_data = {
                     **self._entry.data,
                     "schedule_enabled": self.schedule_enabled,
-                    "keep_moonlight": self.keep_moonlight,
-                    "moonlight_brightness": self.moonlight_brightness,
                     "current_mode": self._current_mode,
                     "current_r": self.current_r,
                     "current_g": self.current_g,
@@ -887,103 +869,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.config_entries.async_update_entry(self._entry, data=new_data)
             except Exception as err:
                 _LOGGER.debug("Failed to persist state to config entry: %s", err)
-
-    def is_in_night_hold(self, target_time: time | None = None) -> bool:
-        """Return True if the given time (or now) falls in the night hold/off interval (all channels zero)."""
-        if not self.schedule_points:
-            return True
-
-        if target_time is None:
-            target_time = datetime.now().time()
-
-        now_sec = target_time.hour * 3600 + target_time.minute * 60 + target_time.second
-        timeline: list[tuple[int, dict[str, Any]]] = []
-        for pt in self.schedule_points:
-            h, m, s = parse_time_str(pt["time"])
-            sec = h * 3600 + m * 60 + s
-            timeline.append((sec, pt))
-
-        timeline.sort(key=lambda x: x[0])
-
-        active_pt = None
-        for sec, pt in timeline:
-            if sec <= now_sec:
-                active_pt = pt
-            else:
-                break
-
-        if active_pt is None:
-            active_pt = timeline[-1][1]
-
-        r_val = float(active_pt.get("r", 0))
-        g_val = float(active_pt.get("g", 0))
-        b_val = float(active_pt.get("b", 0))
-        w_val = float(active_pt.get("w", 0))
-        uv_val = float(active_pt.get("uv", 0))
-        v_val = float(active_pt.get("v", 0))
-
-        return (r_val + g_val + b_val + w_val + uv_val + v_val) == 0
-
-    async def async_set_moonlight_enabled(self, enabled: bool) -> None:
-        """Enable or disable night moonlight and send packet immediately if in night period."""
-        self._manual_disconnected = False
-        self.keep_moonlight = enabled
-        _LOGGER.info("Night moonlight %s for %s", "ENABLED" if enabled else "DISABLED", self.mac)
-
-        if self.schedule_enabled:
-            if self.is_in_night_hold():
-                target = self.calculate_interpolated_spectrum(datetime.now().time())
-                self.current_r = target.r
-                self.current_g = target.g
-                self.current_b = target.b
-                self.current_w = target.w
-                self.current_uv = target.uv
-                self.current_v = target.violet
-
-                packet = WeekAquaProtocol.build_live_spectrum_packet(
-                    self.current_r, self.current_g, self.current_b, self.current_w,
-                    self.current_uv, self.current_v, self.model_code,
-                    is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-                )
-                self._last_sent_spectrum = packet
-                await self._send_live_spectrum_with_mode(packet)
-        else:
-            # Direct manual moonlight control
-            target_b = float(self.moonlight_brightness) if enabled else 0.0
-            await self.async_set_spectrum(0.0, 0.0, target_b, 0.0, 0.0, 0.0, disable_schedule=False)
-
-        self._persist_state()
-        self.async_set_updated_data(self._build_data())
-
-    async def async_set_moonlight_brightness(self, brightness: float) -> None:
-        """Set moonlight brightness percentage (1.0 ~ 20.0%) and update immediately if active and in night period."""
-        self._manual_disconnected = False
-        self.moonlight_brightness = max(1.0, min(20.0, float(brightness)))
-        _LOGGER.info("Moonlight brightness set to %.1f%% for %s", self.moonlight_brightness, self.mac)
-
-        if self.keep_moonlight:
-            if self.schedule_enabled:
-                if self.is_in_night_hold():
-                    target = self.calculate_interpolated_spectrum(datetime.now().time())
-                    self.current_r = target.r
-                    self.current_g = target.g
-                    self.current_b = target.b
-                    self.current_w = target.w
-                    self.current_uv = target.uv
-                    self.current_v = target.violet
-
-                    packet = WeekAquaProtocol.build_live_spectrum_packet(
-                        self.current_r, self.current_g, self.current_b, self.current_w,
-                        self.current_uv, self.current_v, self.model_code,
-                        is_4ch_rgb_uv=self._is_4ch_rgb_uv()
-                    )
-                    self._last_sent_spectrum = packet
-                    await self._send_live_spectrum_with_mode(packet)
-            else:
-                await self.async_set_spectrum(0.0, 0.0, self.moonlight_brightness, 0.0, 0.0, 0.0, disable_schedule=False)
-
-        self._persist_state()
-        self.async_set_updated_data(self._build_data())
 
     # --- Public Control Methods (Called by Entities & Services) ---
 
@@ -1049,10 +934,6 @@ class WeekAquaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.schedule_points = points
         if meta:
             self.schedule_meta = {**self.schedule_meta, **{k: v for k, v in meta.items() if v is not None}}
-            if "keep_moonlight" in meta and meta["keep_moonlight"] is not None:
-                self.keep_moonlight = bool(meta["keep_moonlight"])
-            if "moonlight_brightness" in meta and meta["moonlight_brightness"] is not None:
-                self.moonlight_brightness = max(1.0, min(20.0, float(meta["moonlight_brightness"])))
         self.schedule_enabled = True
 
         self._persist_state()

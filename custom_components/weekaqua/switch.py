@@ -25,7 +25,6 @@ async def async_setup_entry(
     coordinator: WeekAquaCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([
         WeekAquaScheduleSwitch(coordinator),
-        WeekAquaMoonlightSwitch(coordinator),
         WeekAquaBleConnectionSwitch(coordinator),
     ])
 
@@ -117,47 +116,3 @@ class WeekAquaScheduleSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntit
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable dynamic schedule (freeze at current or manual)."""
         await self.coordinator.async_set_schedule_enabled(False)
-
-
-class WeekAquaMoonlightSwitch(CoordinatorEntity[WeekAquaCoordinator], SwitchEntity, RestoreEntity):
-    """Switch to toggle night moonlight retention."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:moon-waning-crescent"
-
-    def __init__(self, coordinator: WeekAquaCoordinator) -> None:
-        """Initialize switch."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.mac}_moonlight"
-        self._attr_name = "Keep Night Moonlight"
-
-    async def async_added_to_hass(self) -> None:
-        """Restore previous state on HA startup."""
-        await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
-            self.coordinator.keep_moonlight = (last_state.state == "on")
-            self.coordinator.async_set_updated_data(self.coordinator._build_data())
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device registry info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self.coordinator.mac)},
-            connections={(CONNECTION_BLUETOOTH, self.coordinator.mac)},
-            name=self.coordinator.device_name,
-            manufacturer="WeekAqua",
-            model=f"WeekAqua ({self.coordinator.model_code or 'BLE'})",
-        )
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if moonlight mode is enabled."""
-        return self.coordinator.keep_moonlight
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable moonlight."""
-        await self.coordinator.async_set_moonlight_enabled(True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Disable moonlight."""
-        await self.coordinator.async_set_moonlight_enabled(False)

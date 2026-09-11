@@ -34,8 +34,6 @@ class WeekAquaCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._activeTab = 'live'; // 'live' or 'schedule'
-    this._keepMoonlight = true;
-    this._moonlightBrightness = 4;
     this._scheduleEnabled = true;
     this._hasLoadedInitialSchedule = false;
     this._scheduleMeta = null;
@@ -532,42 +530,6 @@ class WeekAquaCard extends HTMLElement {
           border-radius: 6px;
           font-size: 12px;
           outline: none;
-        }
-        .moonlight-toggle-wrap {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          background: #18181B;
-          border: 1px solid #3F3F46;
-          border-radius: 6px;
-          padding: 7px 10px;
-          margin-bottom: 10px;
-        }
-        .moonlight-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 11px;
-          font-weight: 600;
-          color: #93C5FD;
-          cursor: pointer;
-          user-select: none;
-        }
-        .moonlight-label input[type="checkbox"] {
-          cursor: pointer;
-          accent-color: #3B82F6;
-          width: 15px;
-          height: 15px;
-          margin: 0;
-        }
-        .moonlight-badge {
-          font-size: 10px;
-          color: #60A5FA;
-          background: rgba(59, 130, 246, 0.15);
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-weight: 600;
-        }
         .btn-auto-distribute {
           background: linear-gradient(135deg, #2563EB, #7C3AED);
           color: #FFF;
@@ -978,13 +940,6 @@ class WeekAquaCard extends HTMLElement {
                 </div>
               </div>
             </div>
-            <div class="moonlight-toggle-wrap">
-              <label class="moonlight-label" for="sched-keep-moonlight">
-                <input type="checkbox" id="sched-keep-moonlight" ${this._keepMoonlight ? 'checked' : ''}>
-                <span>🌙 Keep Night Moonlight (심야 은은한 달빛 <span id="moonlight-pct-txt">${(Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4}</span>% 유지)</span>
-              </label>
-              <span class="moonlight-badge" id="moonlight-status-badge">${this._keepMoonlight ? `Blue ${(Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4}%` : 'Off (0%)'}</span>
-            </div>
             <button class="btn-auto-distribute" id="btn-auto-distribute">
               ⚡ Auto Distribute (수학적 자연 곡선 자동 계산)
             </button>
@@ -1075,12 +1030,6 @@ class WeekAquaCard extends HTMLElement {
         if (data.points && Array.isArray(data.points) && data.points.length > 0) {
           this._schedulePoints = data.points;
         }
-        if (data.moonlight_brightness !== undefined) {
-          this._moonlightBrightness = parseFloat(data.moonlight_brightness) || this._moonlightBrightness;
-        }
-        if (data.keep_moonlight !== undefined) {
-          this._keepMoonlight = Boolean(data.keep_moonlight);
-        }
         if (data.intensity !== undefined) {
           this._scheduleIntensity = Math.max(0, Math.min(100, parseInt(data.intensity, 10) || 100));
         }
@@ -1125,36 +1074,6 @@ class WeekAquaCard extends HTMLElement {
       if (intensitySlider && activeEl !== intensitySlider) intensitySlider.value = String(this._scheduleIntensity);
       if (intensityNum && activeEl !== intensityNum) intensityNum.value = String(this._scheduleIntensity);
       if (intensityVal) intensityVal.textContent = `${this._scheduleIntensity}%`;
-    }
-    if (meta.moonlight_brightness !== undefined) {
-      const parsed = parseFloat(meta.moonlight_brightness);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        this._moonlightBrightness = parsed;
-      }
-    }
-    if (meta.keep_moonlight !== undefined) {
-      this._keepMoonlight = Boolean(meta.keep_moonlight);
-    }
-    this._updateMoonlightUI();
-  }
-
-  _updateMoonlightUI() {
-    const root = this.shadowRoot;
-    if (!root) return;
-    const chk = root.getElementById('sched-keep-moonlight');
-    const badge = root.getElementById('moonlight-status-badge');
-    const pctTxt = root.getElementById('moonlight-pct-txt');
-    const brightness = (Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4;
-    const activeEl = (root && 'activeElement' in root) ? root.activeElement : null;
-    if (chk && activeEl !== chk) {
-      chk.checked = Boolean(this._keepMoonlight);
-    }
-    if (pctTxt) {
-      pctTxt.textContent = `${brightness}`;
-    }
-    if (badge) {
-      badge.textContent = this._keepMoonlight ? `Blue ${brightness}%` : 'Off (0%)';
-      badge.style.color = this._keepMoonlight ? '#60A5FA' : '#94A3B8';
     }
   }
 
@@ -1441,29 +1360,6 @@ class WeekAquaCard extends HTMLElement {
       };
       intensitySlider.addEventListener('input', (e) => updateIntensity(e.target.value));
       intensityNum.addEventListener('input', (e) => updateIntensity(e.target.value));
-    }
-
-    // Schedule: Moonlight checkbox toggle
-    const chkMoonlight = root.getElementById('sched-keep-moonlight');
-    if (chkMoonlight) {
-      chkMoonlight.addEventListener('change', () => {
-        this._keepMoonlight = chkMoonlight.checked;
-        this._updateMoonlightUI();
-        this._renderCurve();
-
-        // Also notify HA switch entity directly for immediate responsiveness
-        if (this._hass) {
-          const entityKey = (this._config.entity || '').replace(/^light\./, '');
-          for (const eId of Object.keys(this._hass.states || {})) {
-            if (eId.startsWith('switch.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
-              this._hass.callService('switch', this._keepMoonlight ? 'turn_on' : 'turn_off', {
-                entity_id: eId,
-              });
-              break;
-            }
-          }
-        }
-      });
     }
 
     // Schedule: Auto Distribute
@@ -1807,15 +1703,12 @@ class WeekAquaCard extends HTMLElement {
     const endInput = root.getElementById('sched-end-time');
     const slotsInput = root.getElementById('sched-slots-input');
     const presetSelect = root.getElementById('sched-preset-select');
-    const chkMoonlight = root.getElementById('sched-keep-moonlight');
 
     const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
     const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
     const baseSpec = this._getPresetSpectrum(presetName);
-    const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
-    this._keepMoonlight = keepMoonlight;
 
     const intensityNum = root.getElementById('sched-intensity-num');
     const intensitySlider = root.getElementById('sched-intensity-slider');
@@ -2081,10 +1974,6 @@ class WeekAquaCard extends HTMLElement {
     }
 
     if (inHoldInterval) {
-      if (this._keepMoonlight) {
-        const mlBrightness = (Number.isFinite(this._moonlightBrightness) && this._moonlightBrightness > 0) ? this._moonlightBrightness : 4;
-        return this._calculatePower(0, 0, mlBrightness, 0, 0, 0);
-      }
       return 0;
     }
 
@@ -2138,13 +2027,11 @@ class WeekAquaCard extends HTMLElement {
     const endInput = root.getElementById('sched-end-time');
     const slotsInput = root.getElementById('sched-slots-input');
     const presetSelect = root.getElementById('sched-preset-select');
-    const chkMoonlight = root.getElementById('sched-keep-moonlight');
 
     const startStr = (startInput ? startInput.value : '18:00').trim() || '18:00';
     const endStr = (endInput ? endInput.value : '02:00').trim() || '02:00';
     const totalSlots = slotsInput ? Math.max(3, parseInt(slotsInput.value, 10) || 20) : 20;
     const presetName = presetSelect ? presetSelect.value : 'GreenGrass';
-    const keepMoonlight = chkMoonlight ? chkMoonlight.checked : this._keepMoonlight;
     const intensityNum = root.getElementById('sched-intensity-num');
     const intensitySlider = root.getElementById('sched-intensity-slider');
     const intensity = intensityNum ? Math.max(0, Math.min(100, parseInt(intensityNum.value, 10) || 100)) : (intensitySlider ? parseInt(intensitySlider.value, 10) : (this._scheduleIntensity || 100));
@@ -2157,8 +2044,6 @@ class WeekAquaCard extends HTMLElement {
       slots: totalSlots,
       preset: presetName,
       intensity: intensity,
-      keep_moonlight: keepMoonlight,
-      moonlight_brightness: this._moonlightBrightness !== undefined ? this._moonlightBrightness : 4,
     };
     this._scheduleMeta = schedMeta;
 
@@ -2180,7 +2065,6 @@ class WeekAquaCard extends HTMLElement {
         slots: totalSlots,
         preset: presetName,
         intensity: intensity,
-        keep_moonlight: keepMoonlight,
       });
       alert('✅ WeekAqua Natural Schedule saved and synced to Home Assistant!');
     }
@@ -2369,47 +2253,6 @@ class WeekAquaCard extends HTMLElement {
             this._scheduleEnabled = Boolean(attr.schedule_enabled);
             this._updateScheduleToggleUI(this._scheduleEnabled);
           }
-
-          // Synchronize moonlight retention & brightness from entity attributes (with fallback)
-          let mlBrightness = attr.moonlight_brightness;
-          let mlKeep = attr.keep_moonlight;
-
-          if (mlBrightness === undefined && this._hass && this._hass.states) {
-            const entityKey = (this._config.entity || '').replace(/^light\./, '');
-            for (const [eId, eState] of Object.entries(this._hass.states)) {
-              if (eId.startsWith('number.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
-                if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
-                  const parsed = parseFloat(eState.state);
-                  if (Number.isFinite(parsed)) {
-                    mlBrightness = parsed;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-          if (mlKeep === undefined && this._hass && this._hass.states) {
-            const entityKey = (this._config.entity || '').replace(/^light\./, '');
-            for (const [eId, eState] of Object.entries(this._hass.states)) {
-              if (eId.startsWith('switch.') && eId.includes('moonlight') && entityKey && eId.includes(entityKey)) {
-                if (eState && eState.state !== 'unknown' && eState.state !== 'unavailable') {
-                  mlKeep = (eState.state === 'on');
-                  break;
-                }
-              }
-            }
-          }
-
-          if (mlBrightness !== undefined) {
-            const parsed = parseFloat(mlBrightness);
-            if (Number.isFinite(parsed) && parsed > 0) {
-              this._moonlightBrightness = parsed;
-            }
-          }
-          if (mlKeep !== undefined) {
-            this._keepMoonlight = Boolean(mlKeep);
-          }
-          this._updateMoonlightUI();
 
           // Synchronize and restore schedule points and metadata from HA entity attributes
           if (attr.schedule_points && Array.isArray(attr.schedule_points) && attr.schedule_points.length > 0) {

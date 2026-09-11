@@ -34,7 +34,6 @@ CONF_NAME = "name"
 CONF_MODEL_CODE = "model_code"
 CONF_MAX_SLOTS = "max_slots"
 CONF_CHANNELS = "channels"
-CONF_KEEP_MOONLIGHT = "keep_moonlight"
 CONF_SCHEDULE = "schedule"
 CONF_SCHEDULE_INTERVAL = "schedule_interval"
 
